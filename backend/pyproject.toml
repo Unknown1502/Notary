@@ -1,0 +1,55 @@
+[project]
+name = "notary"
+version = "1.0.0"
+description = "An AI Creative Review Board for generative media, with signed provenance on Backblaze B2."
+requires-python = ">=3.11"
+dependencies = [
+    # --- Genblaze SDK: core + the providers Notary orchestrates ---
+    "genblaze-core>=0.3.4",
+    "genblaze-s3>=0.3.4",        # ObjectStorageSink / S3StorageBackend.for_backblaze()
+    "genblaze-gmicloud>=0.3.1",  # primary image + video provider
+    "genblaze-luma>=0.3.1",      # cross-provider fallback on the video step
+
+    # --- Service ---
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "httpx>=0.27",
+    "sse-starlette>=2.1",
+    "python-multipart>=0.0.12",
+
+    # --- Storage / provenance ---
+    "boto3>=1.35",               # Object Lock retention: the S3 API Genblaze's sink does not expose
+    "cryptography>=43.0",        # Ed25519 — Genblaze Trust Mode 2
+
+    # --- Deterministic screening (the non-LLM half of the Board) ---
+    "pillow>=10.4",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["notary"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

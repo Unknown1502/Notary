@@ -1,0 +1,876 @@
+/* ==========================================================================
+   Notary — visual system
+
+   Direction: calibrated instrument, not dashboard.
+
+   Half of this product's findings are literal measurements (CIE Lab dE,
+   coverage ratios, frame geometry) and half are model judgements. The design's
+   central move is to make those two look like different kinds of knowledge:
+
+     MEASURED   mono readouts, observed-vs-threshold, hard edges. Instrument.
+     REVIEWED   prose rationale, a confidence bar, softer weight. Opinion.
+
+   A reviewer should be able to tell, without reading a word, which findings
+   are facts and which are estimates. That distinction is the product thesis,
+   so it gets the strongest visual treatment in the system.
+
+   Brass (--seal) appears in exactly one place: a sealed certificate. Spending
+   the one warm colour on the one irreversible act is the whole restraint
+   budget.
+   ========================================================================== */
+
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+:root {
+  /* Housing ------------------------------------------------------------- */
+  --housing: #0f1318;
+  --panel: #161b22;
+  --panel-raised: #1c222b;
+  --rule: #262e39;
+  --rule-bright: #36414f;
+
+  /* Ink ----------------------------------------------------------------- */
+  --ink: #e4e8ee;
+  --ink-dim: #8794a3;
+  --ink-faint: #5a6674;
+
+  /* Signal -------------------------------------------------------------- */
+  --pass: #3ddc97;
+  --fail: #f2545b;
+  --escalate: #f5a623;
+  --live: #4da3ff;
+  --seal: #c9a227;
+
+  --pass-wash: rgba(61, 220, 151, 0.09);
+  --fail-wash: rgba(242, 84, 91, 0.09);
+  --escalate-wash: rgba(245, 166, 35, 0.1);
+  --seal-wash: rgba(201, 162, 39, 0.1);
+
+  /* Type ---------------------------------------------------------------- */
+  --display: "Space Grotesk Variable", "Space Grotesk", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", monospace;
+
+  --step--1: clamp(0.75rem, 0.72rem + 0.15vw, 0.82rem);
+  --step-0: clamp(0.875rem, 0.85rem + 0.15vw, 0.94rem);
+  --step-1: clamp(1.05rem, 1rem + 0.25vw, 1.2rem);
+  --step-2: clamp(1.35rem, 1.25rem + 0.5vw, 1.7rem);
+  --step-3: clamp(1.9rem, 1.6rem + 1.4vw, 2.9rem);
+
+  /* Space --------------------------------------------------------------- */
+  --gap-xs: 0.375rem;
+  --gap-sm: 0.625rem;
+  --gap: 1rem;
+  --gap-lg: 1.75rem;
+  --gap-xl: 3rem;
+
+  --radius: 3px;
+  --shell: 1440px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--housing);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: var(--step-0);
+  line-height: 1.55;
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Eyebrow / label — the utility voice of the instrument
+   -------------------------------------------------------------------------- */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-ligatures: none;
+}
+
+/* --------------------------------------------------------------------------
+   Shell
+   -------------------------------------------------------------------------- */
+
+.shell {
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding: 0 var(--gap-lg) var(--gap-xl);
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 0 var(--gap) var(--gap-lg);
+  }
+}
+
+/* Masthead ---------------------------------------------------------------- */
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  padding: var(--gap-lg) 0 var(--gap);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--gap-lg);
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-size: var(--step-2);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+
+/* The one flourish on the wordmark: a rule that reads as a stamp underline. */
+.wordmark::after {
+  content: "";
+  display: block;
+  height: 2px;
+  width: 100%;
+  margin-top: 3px;
+  background: linear-gradient(90deg, var(--ink) 0%, transparent 100%);
+}
+
+.masthead__tagline {
+  color: var(--ink-dim);
+  font-size: var(--step--1);
+  margin: 0;
+  flex: 1 1 16rem;
+}
+
+.mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--rule-bright);
+  border-radius: 100px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.mode-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.mode-pill--live .mode-pill__dot {
+  background: var(--live);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.mode-pill--replay .mode-pill__dot {
+  background: var(--escalate);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Nav --------------------------------------------------------------------- */
+
+.nav {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--gap-lg);
+  overflow-x: auto;
+}
+
+.nav__tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.nav__tab:hover {
+  color: var(--ink-dim);
+}
+
+.nav__tab[aria-selected="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.nav__count {
+  display: inline-block;
+  margin-left: 0.45rem;
+  padding: 0 0.35rem;
+  border-radius: 100px;
+  background: var(--escalate);
+  color: var(--housing);
+  font-size: 0.68rem;
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------------------------
+   Panels
+   -------------------------------------------------------------------------- */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: var(--gap-sm) var(--gap);
+  border-bottom: 1px solid var(--rule);
+}
+
+.panel__body {
+  padding: var(--gap);
+}
+
+.docket {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: var(--gap-lg);
+  align-items: start;
+}
+
+@media (max-width: 940px) {
+  .docket {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Findings — THE signature element
+
+   Two visual registers for two kinds of knowledge.
+   -------------------------------------------------------------------------- */
+
+.findings__group {
+  margin-bottom: var(--gap-lg);
+}
+
+.findings__group:last-child {
+  margin-bottom: 0;
+}
+
+.findings__legend {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-sm);
+  padding-bottom: var(--gap-xs);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--gap-xs);
+}
+
+.findings__legend-note {
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  margin: 0;
+  flex: 1;
+  text-align: right;
+}
+
+.finding {
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr) auto;
+  gap: var(--gap-sm);
+  align-items: baseline;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid rgba(38, 46, 57, 0.5);
+  animation: finding-in 0.32s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@keyframes finding-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.finding__mark {
+  font-family: var(--mono);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.finding--pass .finding__mark {
+  color: var(--pass);
+}
+.finding--fail .finding__mark {
+  color: var(--fail);
+}
+.finding--uncertain .finding__mark {
+  color: var(--escalate);
+}
+.finding--not_applicable .finding__mark {
+  color: var(--ink-faint);
+}
+
+.finding__label {
+  font-weight: 500;
+}
+
+.finding__rationale {
+  grid-column: 2 / -1;
+  font-size: var(--step--1);
+  color: var(--ink-dim);
+  margin: 0.2rem 0 0;
+  max-width: 62ch;
+}
+
+/* --- Measured register: instrument readout ------------------------------- */
+
+.finding--measured .finding__label {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.readout {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  white-space: nowrap;
+  color: var(--ink-dim);
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.readout__value {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.finding--fail .readout__value {
+  color: var(--fail);
+}
+
+.finding--pass .readout__value {
+  color: var(--pass);
+}
+
+.readout__limit {
+  color: var(--ink-faint);
+}
+
+/* --- Reviewed register: judgement with confidence ------------------------ */
+
+.finding--reviewed .finding__label {
+  font-family: var(--body);
+  font-size: var(--step-0);
+}
+
+.confidence {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.confidence__track {
+  width: 46px;
+  height: 3px;
+  background: var(--rule-bright);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.confidence__fill {
+  display: block;
+  height: 100%;
+  background: var(--ink-dim);
+  transition: width 0.5s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.finding--uncertain .confidence__fill {
+  background: var(--escalate);
+}
+
+.finding--pass .confidence__fill {
+  background: var(--pass);
+}
+
+.finding--fail .confidence__fill {
+  background: var(--fail);
+}
+
+/* --------------------------------------------------------------------------
+   Disposition — the verdict bar
+   -------------------------------------------------------------------------- */
+
+.disposition {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  padding: var(--gap-sm) var(--gap);
+  border: 1px solid var(--rule-bright);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  margin-top: var(--gap);
+}
+
+.disposition--verified {
+  border-left-color: var(--pass);
+  background: var(--pass-wash);
+}
+.disposition--rejected {
+  border-left-color: var(--fail);
+  background: var(--fail-wash);
+}
+.disposition--escalated {
+  border-left-color: var(--escalate);
+  background: var(--escalate-wash);
+}
+
+.disposition__verdict {
+  font-family: var(--display);
+  font-size: var(--step-1);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.disposition--verified .disposition__verdict {
+  color: var(--pass);
+}
+.disposition--rejected .disposition__verdict {
+  color: var(--fail);
+}
+.disposition--escalated .disposition__verdict {
+  color: var(--escalate);
+}
+
+.disposition__detail {
+  color: var(--ink-dim);
+  font-size: var(--step--1);
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Lineage — takes are a real sequence, so they are numbered
+   -------------------------------------------------------------------------- */
+
+.lineage {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lineage__node {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--gap);
+  padding-bottom: var(--gap);
+  position: relative;
+}
+
+.lineage__node:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 0.72rem;
+  top: 1.6rem;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule-bright);
+}
+
+.lineage__index {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  width: 1.45rem;
+  height: 1.45rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--rule-bright);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--ink-dim);
+  z-index: 1;
+}
+
+.lineage__node--certified .lineage__index {
+  border-color: var(--seal);
+  color: var(--seal);
+}
+.lineage__node--rejected .lineage__index {
+  border-color: var(--fail);
+  color: var(--fail);
+}
+.lineage__node--escalated .lineage__index {
+  border-color: var(--escalate);
+  color: var(--escalate);
+}
+
+.lineage__title {
+  font-weight: 500;
+  margin: 0;
+}
+
+.lineage__meta {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  margin: 0.15rem 0 0;
+}
+
+/* --------------------------------------------------------------------------
+   The seal — brass, used nowhere else
+   -------------------------------------------------------------------------- */
+
+.seal {
+  border: 1px solid var(--seal);
+  border-radius: var(--radius);
+  background: var(--seal-wash);
+  padding: var(--gap);
+  animation: seal-in 0.55s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+}
+
+@keyframes seal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.seal__label {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--seal);
+  margin: 0 0 var(--gap-xs);
+}
+
+.seal__retention {
+  font-size: var(--step--1);
+  color: var(--ink-dim);
+  margin: 0;
+}
+
+/* Hash / key display ------------------------------------------------------ */
+
+.hash {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  word-break: break-all;
+  color: var(--ink-dim);
+  background: var(--housing);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.55rem;
+  margin: 0.25rem 0 0;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: var(--gap-sm);
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(38, 46, 57, 0.55);
+  align-items: baseline;
+}
+
+@media (max-width: 560px) {
+  .field-row {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+}
+
+.field-row__key {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.field-row__value {
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* Verification checks ------------------------------------------------------ */
+
+.check {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  gap: var(--gap-sm);
+  padding: var(--gap-sm) 0;
+  border-bottom: 1px solid rgba(38, 46, 57, 0.55);
+}
+
+.check__mark {
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+.check--pass .check__mark {
+  color: var(--pass);
+}
+.check--fail .check__mark {
+  color: var(--fail);
+}
+
+.check__name {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.check__detail {
+  font-size: var(--step--1);
+  color: var(--ink-dim);
+  margin: 0.2rem 0 0;
+}
+
+/* --------------------------------------------------------------------------
+   Controls
+   -------------------------------------------------------------------------- */
+
+.btn {
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 0.55rem 1.1rem;
+  background: var(--ink);
+  color: var(--housing);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.06s ease;
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.86;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn--ghost {
+  background: none;
+  color: var(--ink);
+  border-color: var(--rule-bright);
+}
+
+.btn--approve {
+  background: var(--pass);
+  border-color: var(--pass);
+  color: var(--housing);
+}
+
+.btn--reject {
+  background: none;
+  color: var(--fail);
+  border-color: var(--fail);
+}
+
+.field {
+  display: block;
+  margin-bottom: var(--gap);
+}
+
+.field__label {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--step--1);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: var(--gap-xs);
+}
+
+.field__hint {
+  display: block;
+  font-size: var(--step--1);
+  color: var(--ink-faint);
+  margin-top: var(--gap-xs);
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  background: var(--housing);
+  border: 1px solid var(--rule-bright);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.7rem;
+  color: var(--ink);
+}
+
+.textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+  font-family: var(--body);
+}
+
+.input:focus,
+.textarea:focus,
+.select:focus {
+  border-color: var(--live);
+  outline: none;
+}
+
+/* Media ------------------------------------------------------------------- */
+
+.frame {
+  width: 100%;
+  display: block;
+  background: #000;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--gap);
+}
+
+.empty {
+  border: 1px dashed var(--rule-bright);
+  border-radius: var(--radius);
+  padding: var(--gap-xl) var(--gap);
+  text-align: center;
+  color: var(--ink-dim);
+}
+
+.empty__title {
+  font-family: var(--display);
+  font-size: var(--step-1);
+  color: var(--ink);
+  margin: 0 0 var(--gap-xs);
+}
+
+.stack > * + * {
+  margin-top: var(--gap);
+}
+
+.row {
+  display: flex;
+  gap: var(--gap-sm);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.notice {
+  border-left: 3px solid var(--live);
+  background: rgba(77, 163, 255, 0.07);
+  padding: var(--gap-sm) var(--gap);
+  border-radius: var(--radius);
+  font-size: var(--step--1);
+  color: var(--ink-dim);
+}
+
+.notice--warn {
+  border-left-color: var(--escalate);
+  background: var(--escalate-wash);
+}

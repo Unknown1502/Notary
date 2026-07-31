@@ -1,0 +1,41 @@
+# Signing keys. Anyone holding the private key can issue certificates in this
+# deployment's name — this must never be committed.
+keys/
+*.pem
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# Node
+node_modules/
+frontend/dist/
+*.local
+
+# Seeded demo recordings are committed on purpose — they are what makes the
+# deployed app usable without credentials. Ignore only ad-hoc captures.
+seed/tmp-*/
+seed/scratch-*/
+
+# Internal planning/strategy document. Not part of the deliverable and not
+# intended for a public repository.
+notary.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

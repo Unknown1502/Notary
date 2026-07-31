@@ -1,0 +1,157 @@
+{
+  "corpus": {
+    "total": 32,
+    "near_boundary": 21,
+    "boundary_fraction": 0.656,
+    "by_criterion": {
+      "aspect_ratio": 7,
+      "palette_adherence": 25
+    },
+    "by_expected": {
+      "fail": 14,
+      "not_applicable": 3,
+      "pass": 15
+    }
+  },
+  "deterministic": {
+    "aspect_ratio": {
+      "overall": {
+        "n": 7,
+        "tp": 3,
+        "fp": 0,
+        "tn": 4,
+        "fn": 0,
+        "correct_abstain": 0,
+        "incorrect_abstain": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "accuracy": 1.0,
+        "f1": 1.0
+      },
+      "near_boundary": {
+        "n": 3,
+        "tp": 1,
+        "fp": 0,
+        "tn": 2,
+        "fn": 0,
+        "correct_abstain": 0,
+        "incorrect_abstain": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "accuracy": 1.0,
+        "f1": 1.0
+      },
+      "failures": []
+    },
+    "banned_lexemes": {
+      "overall": {
+        "n": 8,
+        "tp": 4,
+        "fp": 0,
+        "tn": 4,
+        "fn": 0,
+        "correct_abstain": 0,
+        "incorrect_abstain": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "accuracy": 1.0,
+        "f1": 1.0
+      },
+      "near_boundary": {
+        "n": 0,
+        "tp": 0,
+        "fp": 0,
+        "tn": 0,
+        "fn": 0,
+        "correct_abstain": 0,
+        "incorrect_abstain": 0,
+        "precision": null,
+        "recall": null,
+        "accuracy": null,
+        "f1": null
+      },
+      "failures": []
+    },
+    "mandatory_disclosure": {
+      "overall": {
+        "n": 4,
+        "tp": 1,
+        "fp": 0,
+        "tn": 3,
+        "fn": 0,
+        "correct_abstain": 0,
+        "incorrect_abstain": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "accuracy": 1.0,
+        "f1": 1.0
+      },
+      "near_boundary": {
+        "n": 0,
+        "tp": 0,
+        "fp": 0,
+        "tn": 0,
+        "fn": 0,
+        "correct_abstain": 0,
+        "incorrect_abstain": 0,
+        "precision": null,
+        "recall": null,
+        "accuracy": null,
+        "f1": null
+      },
+      "failures": []
+    },
+    "palette_adherence": {
+      "overall": {
+        "n": 25,
+        "tp": 11,
+        "fp": 0,
+        "tn": 11,
+        "fn": 0,
+        "correct_abstain": 3,
+        "incorrect_abstain": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "accuracy": 1.0,
+        "f1": 1.0
+      },
+      "near_boundary": {
+        "n": 18,
+        "tp": 9,
+        "fp": 0,
+        "tn": 9,
+        "fn": 0,
+        "correct_abstain": 0,
+        "incorrect_abstain": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "accuracy": 1.0,
+        "f1": 1.0
+      },
+      "failures": []
+    }
+  },
+  "invariants": {
+    "no_unsafe_certification": {
+      "combinations_checked": 536424,
+      "holds": true,
+      "violations": []
+    },
+    "exhausted_budget_never_approves": {
+      "combinations_checked": 7,
+      "holds": true,
+      "violations": []
+    }
+  },
+  "not_evaluated": {
+    "perceptual_criteria": [
+      "logo_presence",
+      "logo_legibility",
+      "visual_artifacts",
+      "tone_alignment",
+      "prohibited_imagery"
+    ],
+    "reason": "Scoring these honestly requires real generated video and independent human labels. Synthesising them would measure our own assumptions, not the Board. The confidence floor of 0.55 is a reasoned default, not an empirically tuned value.",
+    "consequence": "Notary makes no accuracy claim about perceptual judgement. That is precisely why perceptual uncertainty escalates to a human instead of resolving automatically."
+  }
+}

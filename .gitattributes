@@ -1,0 +1,18 @@
+# Normalise line endings so the repo is identical on Windows, macOS, and Linux.
+# Without this, a clone on another platform can show the entire tree as
+# modified, and CI diffs become unreadable.
+* text=auto eol=lf
+
+# Binary — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.woff binary
+*.woff2 binary
+*.mp4 binary
+*.pem binary
+
+# Generated; collapse in pull-request diffs.
+frontend/package-lock.json linguist-generated=true
+docs/evaluation-report.json linguist-generated=true
+seed/**/events.ndjson linguist-generated=true
