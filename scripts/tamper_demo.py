@@ -26,7 +26,6 @@ mint a new record, but cannot replace the sealed one.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import sys
@@ -35,7 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from notary.provenance import signing  # noqa: E402
+from notary.provenance import signing
 
 GREEN, RED, YELLOW, DIM, BOLD, RESET = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"

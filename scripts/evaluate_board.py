@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from notary.evaluation import evaluate  # noqa: E402
+from notary.evaluation import evaluate
 
 ROOT = Path(__file__).resolve().parents[1]
 

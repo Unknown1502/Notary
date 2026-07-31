@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..board import BoardEvaluator, BoardReviewProvider, BrandGuardrailHook, decide
+from ..board import BoardEvaluator, BrandGuardrailHook, decide
 from ..board.review import run_vision_review
 from ..config import RunMode, Settings, get_settings
 from ..events import Event, EventType, Recorder, get_bus
@@ -101,11 +101,13 @@ class _SealedMedia:
 
     url: str
     size: int
+
     embedded_by: str
-    version_id: str | None = None
-    """The immutable version. See Certificate.asset_version_id."""
     """'notary', 'genblaze', or 'none'. Surfaced on the certificate so it
     never claims an embedding that did not happen."""
+
+    version_id: str | None = None
+    """The immutable version. See Certificate.asset_version_id."""
 
 
 class ReviewRunner:
@@ -547,6 +549,29 @@ class ReviewRunner:
         # serves -- so a downloader who hashes what they fetched matches the
         # certificate. The pre-embed media digest lives on in the manifest.
         take.sha256 = sealed.sha256
+
+        # Promote the thumbnail into the vault under the same retention.
+        # Without this the library's preview points at the workbench, which a
+        # Lifecycle Rule empties after a few days -- so certified assets would
+        # silently lose their thumbnails while the assets themselves remained
+        # sealed. Best effort: a missing preview must never block certification.
+        vault_thumbnail: str | None = None
+        if take.thumbnail_url and take.asset_key:
+            source_thumb = take.asset_key.rsplit(".", 1)[0] + "-thumb.jpg"
+            try:
+                vault_thumbnail = (
+                    await asyncio.to_thread(
+                        self.storage.copy_into_vault,
+                        self.settings.b2_bucket_workbench,
+                        source_thumb,
+                        thumb_key,
+                        retention_days=retention,
+                        content_type="image/jpeg",
+                    )
+                ).url
+            except Exception as exc:  # noqa: BLE001
+                log.warning("could not promote thumbnail to the vault: %s", exc)
+
         identity = self._signing_identity()
 
         await asyncio.to_thread(
@@ -567,7 +592,7 @@ class ReviewRunner:
             asset_key=asset_key, asset_url=sealed.url,
             manifest_key=manifest_key, verdict_key=verdict_key,
             manifest_hash=manifest_hash,
-            thumbnail_url=take.thumbnail_url,
+            thumbnail_url=vault_thumbnail or take.thumbnail_url,
             retention_days=retention,
             identity=identity,
             require_signing=self.settings.require_signing,

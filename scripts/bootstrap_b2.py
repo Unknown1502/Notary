@@ -24,8 +24,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from notary.config import get_settings  # noqa: E402
-from notary.storage import get_storage  # noqa: E402
+from notary.config import get_settings
+from notary.storage import get_storage
 
 
 def main() -> int:

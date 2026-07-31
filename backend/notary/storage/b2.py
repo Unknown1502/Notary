@@ -36,9 +36,10 @@ import hashlib
 import io
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Iterator
+from typing import Any
 
 from ..config import Settings, get_settings
 

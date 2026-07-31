@@ -9,6 +9,13 @@ Mode 3 (C2PA) remains roadmap here too, and is described honestly as such in
 docs/TRUST-MODEL.md rather than implied.
 """
 
+from .certificate import (
+    build_certificate,
+    build_verdict_document,
+    canonical_json,
+    certificate_document,
+    hash_payload,
+)
 from .embedding import (
     EmbeddedManifest,
     EmbeddingError,
@@ -21,13 +28,6 @@ from .embedding import (
     strip_bytes,
     verify_bytes,
     verify_file,
-)
-from .certificate import (
-    build_certificate,
-    build_verdict_document,
-    canonical_json,
-    certificate_document,
-    hash_payload,
 )
 from .signing import (
     SigningIdentity,

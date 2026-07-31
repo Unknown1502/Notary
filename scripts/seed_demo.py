@@ -43,10 +43,10 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from notary.board import deterministic as det  # noqa: E402
-from notary.board.rubric import get_profile  # noqa: E402
-from notary.config import get_settings  # noqa: E402
-from notary.models import (  # noqa: E402
+from notary.board import deterministic as det
+from notary.board.rubric import get_profile
+from notary.config import get_settings
+from notary.models import (
     BrandKit,
     CampaignBrief,
     ChannelSpec,

@@ -33,8 +33,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from notary.config import get_settings  # noqa: E402
-from notary.storage import get_storage  # noqa: E402
+from notary.config import get_settings
+from notary.storage import get_storage
 
 GREEN, RED, YELLOW, DIM, BOLD, RESET = (
     "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m"

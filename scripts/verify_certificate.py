@@ -262,7 +262,7 @@ def main() -> int:
         return 0
 
     failed = sum(1 for r in results if not r)
-    print(paint(f"  NOT VERIFIED", RED + BOLD)
+    print(paint("  NOT VERIFIED", RED + BOLD)
           + f" -- {failed} of {len(results)} checks failed.")
     print()
     return 1

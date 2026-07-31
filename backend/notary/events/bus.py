@@ -19,13 +19,15 @@ docs/OPERATIONS.md#scaling describes that path.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
 from collections import defaultdict, deque
+from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
-from typing import Any, AsyncIterator
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -181,10 +183,8 @@ class EventBus:
                     return
         finally:
             async with self._lock:
-                try:
+                with contextlib.suppress(ValueError):
                     self._subscribers[session_id].remove(queue)
-                except ValueError:
-                    pass
 
     def history(self, session_id: str) -> list[Event]:
         return list(self._history.get(session_id, ()))

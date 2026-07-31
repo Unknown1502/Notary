@@ -17,6 +17,7 @@ required for a rejection to be re-derivable.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import shutil
@@ -87,10 +88,8 @@ def probe(path: Path) -> MediaInfo:
     fmt = payload.get("format") or {}
 
     duration: float | None = None
-    try:
+    with contextlib.suppress(TypeError, ValueError):
         duration = float(fmt.get("duration"))
-    except (TypeError, ValueError):
-        pass
 
     fps: float | None = None
     rate = stream.get("avg_frame_rate") or ""

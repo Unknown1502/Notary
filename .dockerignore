@@ -1,0 +1,31 @@
+# Keep the build context small and, more importantly, keep secrets out of it.
+# Anything copied into an image layer is recoverable from that image even if a
+# later layer deletes it.
+
+.env
+.env.*
+!.env.example
+keys/
+*.pem
+
+.git/
+.github/
+
+frontend/node_modules/
+frontend/dist/
+**/__pycache__/
+**/*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+notary.md
+*.md
+!README.md
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

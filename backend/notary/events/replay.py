@@ -27,12 +27,14 @@ four-minute wait is faithful to the wrong thing. Gaps are also clamped, so a
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from .bus import Event, EventBus, EventType
 
@@ -155,10 +157,8 @@ def load_recording(directory: Path) -> Recording | None:
 
     recorded_at = datetime.now(UTC)
     if raw := meta.get("recorded_at"):
-        try:
+        with contextlib.suppress(ValueError):
             recorded_at = datetime.fromisoformat(raw)
-        except ValueError:
-            pass
 
     return Recording(
         session_id=meta.get("session_id", directory.name),

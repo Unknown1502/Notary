@@ -161,7 +161,10 @@ def describe_layout() -> dict[str, object]:
             "vault": {
                 "strategy": Strategy.HIERARCHICAL.value,
                 "object_lock": "COMPLIANCE",
-                "pattern": "vault/{tenant}/{campaign}/{asset_id}/{asset,manifest,verdict,certificate,thumbnail}",
+                "pattern": (
+                    "vault/{tenant}/{campaign}/{asset_id}/"
+                    "{asset,manifest,verdict,certificate,thumbnail}"
+                ),
                 "why": (
                     "Audit-shaped. One prefix returns the complete sealed "
                     "record for one asset; one prefix up returns the campaign."

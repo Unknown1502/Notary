@@ -13,12 +13,15 @@ Run it:
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api.routes import router
 from .config import RunMode, get_settings
@@ -105,8 +108,8 @@ app.add_middleware(
 app.include_router(router)
 
 
-@app.get("/")
-async def root() -> JSONResponse:
+@app.get("/api")
+async def api_root() -> JSONResponse:
     settings = get_settings()
     return JSONResponse(
         {
@@ -119,6 +122,40 @@ async def root() -> JSONResponse:
                 "recordings": "/api/demo/recordings",
                 "library": "/api/library",
                 "human_queue": "/api/queue",
+                "evidence": "/api/evaluation",
             },
         }
     )
+
+
+# --------------------------------------------------------------------------
+# Static frontend
+# --------------------------------------------------------------------------
+#
+# When a built frontend is present (the Docker image puts it at /app/static),
+# serve it from this same process. One origin means no CORS to misconfigure in
+# production and no second service to deploy -- which matters because the whole
+# point of the deployment is that a judge can open one URL and it works.
+#
+# Mounted last so every /api route above wins. In development the frontend runs
+# under Vite on :5173 and proxies here, so this block simply does nothing.
+
+_STATIC_DIR = Path(os.environ.get("NOTARY_STATIC_DIR", "/app/static"))
+if not _STATIC_DIR.is_dir():
+    _STATIC_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+if _STATIC_DIR.is_dir():
+    # html=True makes unknown paths fall back to index.html, which a
+    # client-side router needs so a deep link does not 404 on refresh.
+    app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="frontend")
+    log.info("serving the built frontend from %s", _STATIC_DIR)
+else:
+    log.info(
+        "no built frontend found (looked in %s); API-only. "
+        "Run `npm run build` in frontend/ to serve the UI from this process.",
+        _STATIC_DIR,
+    )
+
+    @app.get("/")
+    async def root_fallback() -> JSONResponse:
+        return await api_root()

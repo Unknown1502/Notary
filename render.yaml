@@ -1,0 +1,79 @@
+# Render blueprint — one service, one URL.
+#
+#   1. Push this repo to GitHub
+#   2. Render dashboard -> New -> Blueprint -> pick the repo
+#   3. Set the secret env vars marked sync:false below
+#
+# Deploys in REPLAY mode by default, so it works before any credentials exist.
+# Add the B2 values to upgrade it to HYBRID: replayed generation, but real
+# certificates read from a real Object-Locked vault, and a Verify button that
+# re-hashes actual bytes out of Backblaze.
+
+services:
+  - type: web
+    name: notary
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+
+    envVars:
+      # ---------------------------------------------------------- mode
+      # replay = no credentials needed, seeded recordings only.
+      # hybrid = real B2 reads + replayed generation. Recommended for a
+      #          public demo: the provenance is genuine and strangers
+      #          cannot spend your provider credits.
+      # live   = real generation. Do not use on a public URL.
+      - key: NOTARY_MODE
+        value: replay
+
+      - key: NOTARY_LOG_LEVEL
+        value: INFO
+
+      # Baked into certificates as the durable asset URL when the vault is
+      # private, so it must be the real public origin, not localhost.
+      - key: NOTARY_PUBLIC_BASE_URL
+        fromService:
+          type: web
+          name: notary
+          property: host
+
+      # Same-origin in production (FastAPI serves the built frontend), so this
+      # only matters if you split the frontend onto its own domain.
+      - key: NOTARY_CORS_ORIGINS
+        value: '["*"]'
+
+      # ------------------------------------------------- Backblaze B2
+      # Set these in the Render dashboard, not here.
+      - key: NOTARY_B2_KEY_ID
+        sync: false
+      - key: NOTARY_B2_APPLICATION_KEY
+        sync: false
+
+      - key: NOTARY_B2_ENDPOINT
+        value: https://s3.us-east-005.backblazeb2.com
+      - key: NOTARY_B2_REGION
+        value: us-east-005
+      - key: NOTARY_B2_BUCKET_VAULT
+        value: notary-vault-prajwal
+      - key: NOTARY_B2_BUCKET_WORKBENCH
+        value: notary-workbench-prajwal
+      - key: NOTARY_VAULT_RETENTION_DAYS
+        value: "7"
+
+      # ------------------------------------------------------ providers
+      # Leave unset on a public deployment. With NOTARY_MODE=replay or hybrid
+      # they are never read, so a visitor cannot trigger paid generation.
+      - key: NOTARY_GMICLOUD_API_KEY
+        sync: false
+
+      # ------------------------------------------------------ signing
+      # The free plan has an ephemeral filesystem, so a key generated at
+      # startup does not survive a restart -- and certificates signed with a
+      # key that no longer exists cannot be verified.
+      #
+      # For a demo that only *reads* certificates sealed elsewhere, leave this
+      # off. To issue certificates from the deployed instance, mount a disk (a
+      # paid plan) or move signing to a KMS. See docs/OPERATIONS.md#key-custody.
+      - key: NOTARY_REQUIRE_SIGNING
+        value: "false"

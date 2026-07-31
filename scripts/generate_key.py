@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from notary.config import get_settings  # noqa: E402
-from notary.provenance import generate_key  # noqa: E402
+from notary.config import get_settings
+from notary.provenance import generate_key
 
 
 def main() -> int:
@@ -44,7 +44,7 @@ def main() -> int:
 
     print(f"private key : {path}")
     print(f"key id      : {settings.signing_key_id}")
-    print(f"algorithm   : Ed25519")
+    print("algorithm   : Ed25519")
     print(f"public key  : {identity.public_key_b64}")
     print()
     print("Public key PEM (publish this so third parties can verify):")

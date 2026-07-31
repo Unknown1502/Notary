@@ -258,7 +258,7 @@ def apply_to_manifest(manifest: object, block: SignatureBlock) -> bool:
     commits to.
     """
     try:
-        setattr(manifest, "signature", encode_signature_block(block))
+        manifest.signature = encode_signature_block(block)
         return True
     except (AttributeError, TypeError, ValueError) as exc:
         log.info(

@@ -62,21 +62,12 @@ try:  # pragma: no cover - exercised by environment, not by tests
     # block down and silently disabled the SDK. They are resolved separately
     # below. See docs/SPIKES.md.
     from genblaze_core import (  # type: ignore[import-not-found]
-        AgentContext,
-        AgentLoop,
-        Asset,
-        CallableEvaluator,
         EvaluationResult,
-        Manifest,
-        Modality,
         ModerationHook,
         ModerationResult,
-        Pipeline,
         ProviderError,
-        Step,
         SyncProvider,
     )
-    from genblaze_core.media import Mp4Handler  # type: ignore[import-not-found]
 
     GENBLAZE_AVAILABLE = True
 except Exception as exc:  # noqa: BLE001 - any import failure degrades to replay
@@ -96,8 +87,6 @@ try:  # pragma: no cover
     #   ObjectStorageSink -> genblaze_core.storage   (NOT genblaze_core.sinks,
     #                                                 NOT genblaze_s3)
     #   S3StorageBackend  -> genblaze_s3
-    from genblaze_core.storage import ObjectStorageSink  # type: ignore[import-not-found]
-    from genblaze_s3 import S3StorageBackend  # type: ignore[import-not-found]
 
     S3_AVAILABLE = True
 except Exception as exc:  # noqa: BLE001

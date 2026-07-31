@@ -1,0 +1,94 @@
+name: CI
+
+# Runs with no credentials and no provider keys. Replay mode is what makes
+# that possible, and keeping CI credential-free is the reason it exists.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend tests and safety proof
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -e "./backend[dev]"
+
+      - name: Tests
+        # Plugin autoload is disabled because an unrelated broken plugin in the
+        # environment can break collection before any Notary code runs.
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: pytest backend/tests -q
+
+      - name: Prove the safety invariant
+        # Exhaustively searches decide()'s input space for any combination that
+        # certifies something unsafe. Exits non-zero if one exists, so a change
+        # that lets an unreviewed asset through fails the build rather than
+        # shipping. This is the check that matters most.
+        run: python scripts/evaluate_board.py
+
+      - name: Confirm the evaluation report is current
+        # docs/EVALUATION.md is generated. If it drifts from what the code
+        # produces, the published numbers stop being true.
+        run: |
+          git diff --exit-code docs/EVALUATION.md docs/evaluation-report.json \
+            || (echo "::error::EVALUATION.md is stale. Run scripts/evaluate_board.py and commit." && exit 1)
+
+      - name: Lint
+        run: ruff check backend/notary backend/tests scripts
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+
+      - run: npx tsc --noEmit
+        working-directory: frontend
+
+      - run: npm run build
+        working-directory: frontend
+
+  docker:
+    name: Docker image builds and serves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -t notary:ci .
+
+      - name: Boot with no credentials at all
+        # The image must be usable by someone who just cloned the repo. If it
+        # needs secrets to answer /api/health, the demo path is broken.
+        run: |
+          docker run -d --name notary -p 8000:8000 notary:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/health > /dev/null; then
+              echo "healthy after ${i}s"; break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8000/api/health | tee health.json
+          python -c "import json;d=json.load(open('health.json'));assert d['status']=='ok';assert d['recordings']>0,'no seeded recordings in the image'"
+          docker rm -f notary
