@@ -179,7 +179,15 @@ python scripts/verify_certificate.py path/to/certificate.json
 
 It downloads the media from B2, recomputes SHA-256 over the bytes that actually arrive, verifies the Ed25519 signature over the canonical manifest hash, and reports the retention window. A provenance claim only checkable by the system that made it is not a provenance claim.
 
-**3. The seal actually catches tampering.** Four real attacks against a real signed certificate:
+**3. The manifest really is inside the .mp4.** Not a sidecar claim — the manifest is written into the container as an ISO-BMFF `uuid` box, the format's standard extension mechanism, so players skip it and the video is byte-identical up to the appended box. The embedded manifest commits to the hash of the media *excluding its own box*, which is what lets a file describe itself without circularity:
+
+```bash
+cd backend && pytest tests/test_embedding.py -q     # 16 tests
+```
+
+Those tests assert the container still parses (`ftyp` first, every original box intact, in order), that stripping restores the original bytes exactly, that re-embedding replaces rather than accumulates, and — the point — that altering a single frame makes extract-and-verify fail. `Mp4Handler` is used when the SDK is importable; the local implementation is what makes the claim testable with no SDK, no credentials, and no network.
+
+**4. The seal actually catches tampering.** Four real attacks against a real signed certificate:
 
 ```bash
 python scripts/tamper_demo.py
@@ -197,7 +205,7 @@ The fourth is included deliberately. A stolen private key defeats any signature 
 
 ```
 vault/{tenant}/{campaign}/{asset_id}/     ← Object Lock COMPLIANCE
-    asset.mp4          the media, manifest embedded
+    asset.mp4          the media, manifest embedded in a uuid box
     manifest.json      provenance, canonical-hashed
     verdict.json       the Board's full finding + human sign-off
     certificate.json   the signed envelope
@@ -255,7 +263,7 @@ NOTARY_MODE=live uvicorn notary.main:app --app-dir backend
 ### Tests
 
 ```bash
-cd backend && pytest -q      # 47 tests, no credentials required
+cd backend && pytest -q      # 63 tests, no credentials required
 ```
 
 The suite concentrates on the invariants that must never break: a malformed model response cannot produce a pass, an exhausted revision budget cannot become an approval, a missing measurement escalates rather than assumes, and a signature from the wrong key is rejected.

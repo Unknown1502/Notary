@@ -49,6 +49,7 @@ KMS path.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -230,18 +231,41 @@ def verify_signature(block: SignatureBlock, canonical_hash: str | None = None) -
     return True
 
 
+def encode_signature_block(block: SignatureBlock) -> str:
+    """Serialise a signature block to the string the manifest field holds.
+
+    `Manifest.signature` is typed `str | None` (verified against
+    genblaze-core 0.3.8), so the block is stored as canonical JSON rather than
+    a nested object. Assigning a dict to it fails pydantic validation -- an
+    earlier version of this function did exactly that, which would have made
+    every live certification raise at the moment of signing.
+
+    Canonical form (sorted keys, no incidental whitespace) so the string is
+    byte-reproducible.
+    """
+    return json.dumps(
+        block.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+    )
+
+
 def apply_to_manifest(manifest: object, block: SignatureBlock) -> bool:
     """Write the signature into the manifest's reserved `signature` field.
 
-    Returns whether the field was set. The SDK excludes this field from the
-    canonical hash, so populating it does not invalidate the hash it commits to.
+    The SDK's own source marks this field as intentionally excluded from the
+    canonical hash: "Cryptographic signature (reserved). Not included in hash."
+    That exclusion is what makes Trust Mode 2 implementable at all -- the
+    signature can be written into the manifest without invalidating the hash it
+    commits to.
     """
     try:
-        setattr(manifest, "signature", block.model_dump(mode="json"))
+        setattr(manifest, "signature", encode_signature_block(block))
         return True
-    except (AttributeError, TypeError) as exc:
-        log.info("manifest signature field not writable (%s); "
-                 "signature is carried in the certificate instead", exc)
+    except (AttributeError, TypeError, ValueError) as exc:
+        log.info(
+            "manifest signature field not writable (%s); the signature is "
+            "carried on the certificate instead",
+            exc,
+        )
         return False
 
 
@@ -249,8 +273,17 @@ def signature_from_manifest(manifest: object) -> SignatureBlock | None:
     raw = getattr(manifest, "signature", None)
     if not raw:
         return None
+
+    # The field is a JSON string; tolerate a dict for forward compatibility.
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            log.warning("manifest signature field is not valid JSON")
+            return None
+
     try:
         return SignatureBlock.model_validate(raw)
     except Exception:  # noqa: BLE001
-        log.warning("manifest carries an unparseable signature field")
+        log.warning("manifest carries an unparseable signature block")
         return None

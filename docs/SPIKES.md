@@ -6,6 +6,34 @@ Everything here is isolated in [`backend/notary/genblaze_compat.py`](../backend/
 
 ---
 
+## Verified against genblaze-core 0.3.8
+
+These were originally written against documentation, then checked by installing the SDK and introspecting it. **Six assumptions were wrong**, and every one of them would have failed silently or at runtime rather than at import. That is the argument for doing this before shipping, and the argument for the compat layer existing at all.
+
+| # | Assumption | Reality | Consequence if unfixed |
+|---|---|---|---|
+| 1 | `from genblaze_core import chat` | `chat` is **not** in core. It is defined per connector: `genblaze_gmicloud.chat`, `genblaze_openai.chat`, `genblaze_google.chat`, `genblaze_nvidia.chat`. Core exports only the chat *types*. | `ImportError` inside the one `try` block guarding every SDK import → `GENBLAZE_AVAILABLE=False` → **the entire SDK silently disabled**, app falls back to replay and never says why. |
+| 2 | `pipeline.moderation(hook)` builder method | `moderation` is a **constructor keyword**: `Pipeline(name, *, chain=False, moderation: ModerationHook \| None = None, ...)`. There is no such method. | The tolerant `_apply()` helper found no method and continued. The hook never attached, deterministic findings never reached step metadata, and the README's manifest-integration claim was quietly false — with nothing appearing broken. |
+| 3 | `Manifest.signature` holds an object | Typed **`str \| None`**. Source comment: *"Cryptographic signature (reserved). Not included in hash."* | Assigning a dict fails pydantic validation → **every live certification raises at the moment of signing**. |
+| 4 | `ObjectStorageSink` from `genblaze_s3` | It is in **`genblaze_core.storage`**. `genblaze_s3` exports `S3StorageBackend` only. `genblaze_core.sinks` has just `BaseSink`. | `ImportError` → no sink → generated assets not streamed to B2 during the run. |
+| 5 | `for_backblaze(..., application_key=, endpoint=)` | Real signature: `for_backblaze(bucket=None, *, region=None, key_id=None, **app_key**=None, public_url_base=None, auto_lifecycle=False, preflight=True)`. No `endpoint`; it is derived from `region`. | `TypeError` on every live run. |
+| 6 | `chat(..., retry_on_rate_limit=True)` | Not a parameter on the GMI Cloud connector. Swallowed by `**kwargs` and forwarded to the HTTP layer. | Silent, but wrong. |
+
+**Confirmed correct**, and load-bearing:
+
+- `Pipeline(name, chain=True, moderation=hook)` accepts a `BrandGuardrailHook` — verified `isinstance(hook, ModerationHook)` is `True` and the constructor takes it.
+- `AgentLoop(pipeline_factory, evaluator, *, max_iterations=3, tracer=None, stop_on_pipeline_failure=True)` — exactly the shape the Board is built on.
+- `AgentContext` is a dataclass with `iteration: int`, `prior_results: list[PipelineResult]`, `last_evaluation: EvaluationResult | None`. Guidance is on **`ctx.last_evaluation.feedback`**, not on the context — reading the context field directly would have stringified a dataclass repr into the revision prompt.
+- `EvaluationResult(passed, score=None, feedback=None, metadata={})` and `ModerationResult(allowed, reason=None, flagged_categories=[])` match what Notary constructs.
+- `Mp4Handler.embed(source, manifest: Manifest, output=None) -> Path`, plus `.extract()` and `.verify()`, in `genblaze_core.media`.
+- `GMICloudImageProvider` / `GMICloudVideoProvider` construct, and a full chained pipeline builds with `fallback_models`, `from_result`, and `astream` all present.
+
+**Discovered, and now used:** `chat()` accepts `response_format`, and core exports `ImageURLContent` / `ImageURLRef` as first-class chat types. Vision input is a supported concept, not something to smuggle through `client=` — and the Board now asks for `{"type": "json_object"}` so a malformed verdict becomes rare rather than merely safe.
+
+**Also discovered:** `S3StorageBackend.for_backblaze()` performs a live `HeadBucket` preflight at construction. It is a network call that raises `StorageError` on bad credentials or a wrong region, so [`make_sink`](../backend/notary/pipeline/factory.py) catches it and degrades rather than failing the run — certification writes through Notary's own B2 client regardless.
+
+---
+
 ## 1. What does `Pipeline.run()` return?
 
 **Question.** The README shows two shapes: an object with `.run` / `.manifest`, and a `(run, manifest)` tuple.

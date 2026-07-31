@@ -53,7 +53,14 @@ ObjectStorageSink: Any = None
 S3StorageBackend: Any = None
 KeyStrategy: Any = None
 
+Mp4Handler: Any = None
+
 try:  # pragma: no cover - exercised by environment, not by tests
+    # Verified against genblaze-core 0.3.8. Note what is NOT here: `chat` and
+    # `Mp4Handler` are not top-level exports, and importing them from
+    # genblaze_core raises ImportError -- which would have taken this whole
+    # block down and silently disabled the SDK. They are resolved separately
+    # below. See docs/SPIKES.md.
     from genblaze_core import (  # type: ignore[import-not-found]
         AgentContext,
         AgentLoop,
@@ -68,13 +75,8 @@ try:  # pragma: no cover - exercised by environment, not by tests
         ProviderError,
         Step,
         SyncProvider,
-        chat,
     )
-    from genblaze_s3 import (  # type: ignore[import-not-found]
-        KeyStrategy,
-        ObjectStorageSink,
-        S3StorageBackend,
-    )
+    from genblaze_core.media import Mp4Handler  # type: ignore[import-not-found]
 
     GENBLAZE_AVAILABLE = True
 except Exception as exc:  # noqa: BLE001 - any import failure degrades to replay
@@ -84,6 +86,62 @@ except Exception as exc:  # noqa: BLE001 - any import failure degrades to replay
         "replay mode is fully functional.",
         GENBLAZE_IMPORT_ERROR,
     )
+
+# The S3 sink is a separate distribution. Its absence must not disable
+# generation -- Notary can still run and write through its own boto3 client.
+S3_AVAILABLE = False
+try:  # pragma: no cover
+    # These live in two different distributions, and neither is where the
+    # obvious guess puts it (verified against genblaze-core 0.3.8):
+    #   ObjectStorageSink -> genblaze_core.storage   (NOT genblaze_core.sinks,
+    #                                                 NOT genblaze_s3)
+    #   S3StorageBackend  -> genblaze_s3
+    from genblaze_core.storage import ObjectStorageSink  # type: ignore[import-not-found]
+    from genblaze_s3 import S3StorageBackend  # type: ignore[import-not-found]
+
+    S3_AVAILABLE = True
+except Exception as exc:  # noqa: BLE001
+    log.info("genblaze-s3 sink unavailable (%s); using Notary's own B2 client", exc)
+
+
+def resolve_chat() -> tuple[Any, str | None]:
+    """Locate the `chat()` callable.
+
+    It is **not** in genblaze_core -- that package exports only the chat
+    *types* (ChatMessage, ImageURLContent, ...). The callable is defined once
+    per connector: `genblaze_gmicloud.chat`, `genblaze_openai.chat`,
+    `genblaze_google.chat`, `genblaze_nvidia.chat`.
+
+    Connectors are tried in the order Notary prefers for vision review. The
+    presence of `ImageURLContent` among the core chat types is what confirms
+    multimodal input is a first-class concept rather than something to be
+    smuggled through `client=`. Resolves docs/SPIKES.md #3.
+    """
+    import importlib
+
+    for module_name in (
+        "genblaze_gmicloud",
+        "genblaze_openai",
+        "genblaze_google",
+        "genblaze_nvidia",
+    ):
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        fn = getattr(module, "chat", None)
+        if not callable(fn):
+            try:
+                fn = getattr(importlib.import_module(f"{module_name}.chat"), "chat", None)
+            except ImportError:
+                fn = None
+        if callable(fn):
+            return fn, module_name
+
+    return None, None
+
+
+chat, CHAT_PROVIDER = resolve_chat()
 
 
 # --------------------------------------------------------------------------
@@ -251,17 +309,31 @@ def vision_chat(
     """
     if not GENBLAZE_AVAILABLE or chat is None:
         raise RuntimeError(
-            "genblaze is not installed; vision review requires live mode."
+            "No genblaze chat connector is installed. Vision review requires "
+            "one of: genblaze-gmicloud, genblaze-openai, genblaze-google, "
+            "genblaze-nvidia."
         )
 
+    # Verified signature (genblaze_gmicloud.chat):
+    #   chat(model, messages=None, *, prompt=None, system=None, tools=None,
+    #        temperature=None, max_tokens=None, response_format=None,
+    #        api_key=None, base_url=None, timeout=60.0, client=None, **kwargs)
+    #
+    # Note there is NO `retry_on_rate_limit` here despite the docs showing one
+    # -- that belongs to a different connector. Passing it would have been
+    # swallowed by **kwargs and forwarded to the HTTP layer.
     return chat(
         model=model,
         messages=build_vision_messages(system_prompt, user_prompt, image_data_urls),
         temperature=temperature,
         max_tokens=max_tokens,
+        # Ask the provider to constrain output to JSON. The Board parses a
+        # structured verdict, and an unparseable response escalates to a human
+        # -- correct, but wasteful when the provider can simply guarantee the
+        # shape. Connectors that ignore this are unaffected.
+        response_format={"type": "json_object"},
         api_key=api_key,
         client=client,
-        retry_on_rate_limit=True,
         **kwargs,
     )
 

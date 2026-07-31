@@ -38,6 +38,7 @@ import hashlib
 import logging
 import tempfile
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -64,10 +65,14 @@ from ..models import (
     TakeStatus,
 )
 from ..provenance import (
+    EmbeddingError,
     build_certificate,
     build_verdict_document,
     certificate_document,
+    embed_bytes,
+    hash_payload,
     load_or_create,
+    verify_bytes,
 )
 from ..provenance.signing import SigningIdentity, SigningUnavailable
 from ..storage import (
@@ -86,6 +91,21 @@ from .factory import build_pipeline, make_sink, resolve_providers
 log = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _SealedMedia:
+    """The artifact actually written to the Object-Locked vault."""
+
+    sha256: str
+    """Digest of the sealed bytes, manifest box included. This is what a
+    downloader who hashes the file they fetched will compute."""
+
+    url: str
+    size: int
+    embedded_by: str
+    """'notary', 'genblaze', or 'none'. Surfaced on the certificate so it
+    never claims an embedding that did not happen."""
+
+
 class ReviewRunner:
     """Drives one campaign brief through the Board to a terminal state."""
 
@@ -97,8 +117,18 @@ class ReviewRunner:
 
     # ------------------------------------------------------------ public API
 
-    async def run(self, brief: CampaignBrief) -> ReviewSession:
+    async def run(
+        self, brief: CampaignBrief, *, session_id: str | None = None
+    ) -> ReviewSession:
+        """Drive a brief to a terminal state.
+
+        `session_id` is supplied by the caller so the HTTP handler can return a
+        stream URL *before* the run begins. Letting the runner mint its own id
+        would hand the client a stream that never emits.
+        """
         session = ReviewSession(brief=brief)
+        if session_id:
+            session.session_id = session_id
         self.store.put_session(session)
 
         recorder: Recorder | None = None
@@ -186,10 +216,18 @@ class ReviewRunner:
         )
 
         def pipeline_factory(ctx: Any = None) -> Any:
+            # AgentContext is a dataclass with exactly three fields (verified
+            # against genblaze-core 0.3.8):
+            #     iteration: int
+            #     prior_results: list[PipelineResult]
+            #     last_evaluation: EvaluationResult | None
+            #
+            # The guidance text lives on `.last_evaluation.feedback`, not on
+            # the context itself. Reading `last_evaluation` directly would
+            # stringify the dataclass repr into the prompt.
             iteration = int(getattr(ctx, "iteration", len(session.takes) + 1) or 1)
-            guidance = getattr(ctx, "feedback", None) or getattr(
-                ctx, "last_evaluation", None
-            )
+            last = getattr(ctx, "last_evaluation", None)
+            guidance = getattr(last, "feedback", None) if last is not None else None
             if iteration > 1:
                 asyncio.run_coroutine_threadsafe(
                     self._emit(
@@ -453,6 +491,14 @@ class ReviewRunner:
         take = session.current_take
         if take is None or take.sha256 is None:
             raise RuntimeError("cannot certify without a hashed asset")
+        if not take.asset_key:
+            # Reached when the workbench upload failed earlier. Fail with a
+            # diagnosis rather than a TypeError three frames deeper in boto3.
+            raise RuntimeError(
+                f"take {take.take_id} has no workbench object to promote; "
+                "the upload failed earlier in the run and there is nothing to "
+                "seal. Check B2 credentials and the workbench bucket."
+            )
 
         brief = session.brief
         asset_id = take.take_id
@@ -470,20 +516,14 @@ class ReviewRunner:
 
         retention = self.settings.vault_retention_days
 
-        # Promote the media into the sealed vault. Bytes are streamed through
-        # this process so the digest that gets certified is computed over the
-        # exact object being sealed.
-        sealed = await asyncio.to_thread(
-            self.storage.copy_into_vault,
-            self.settings.b2_bucket_workbench,
-            take.asset_key,
-            asset_key,
-            retention_days=retention,
-        )
-
-        identity = self._signing_identity()
-        manifest_hash = take.sha256  # rebound below if a manifest hash exists
-
+        # The manifest is built first because it has to be embedded into the
+        # media *before* the media is hashed and sealed. Embedding changes the
+        # bytes, so hashing first would certify a digest that does not match
+        # the object anyone downloads.
+        #
+        # `asset_sha256` commits to the media excluding the manifest box, which
+        # is what makes an embedded manifest able to describe its own file
+        # without circularity. See provenance/embedding.py.
         manifest_payload = {
             "schema": "notary.manifest-index/v1",
             "run_id": take.run_id,
@@ -492,11 +532,20 @@ class ReviewRunner:
             "provider": take.video_provider,
             "model": take.video_model,
             "prompt": take.prompt,
+            "verdict_digest": hash_payload(verdict.model_dump(mode="json")),
             "lineage": session.lineage(),
         }
-        from ..provenance import hash_payload
-
         manifest_hash = hash_payload(manifest_payload)
+
+        sealed = await asyncio.to_thread(
+            self._seal_media, take.asset_key, asset_key, manifest_payload, retention
+        )
+
+        # take.sha256 now refers to the sealed artifact -- the exact bytes B2
+        # serves -- so a downloader who hashes what they fetched matches the
+        # certificate. The pre-embed media digest lives on in the manifest.
+        take.sha256 = sealed.sha256
+        identity = self._signing_identity()
 
         await asyncio.to_thread(
             self.storage.put_json,
@@ -542,6 +591,8 @@ class ReviewRunner:
             sha256=certificate.sha256,
             manifest_hash=manifest_hash,
             trust_mode=certificate.trust_mode,
+            manifest_embedded=sealed.embedded_by != "none",
+            embedded_by=sealed.embedded_by,
             signature_key_id=(
                 certificate.signature.key_id if certificate.signature else None
             ),
@@ -557,6 +608,55 @@ class ReviewRunner:
                 f"Certified and sealed under Object Lock until "
                 f"{certificate.retention_until:%Y-%m-%d}."
             ),
+        )
+
+    def _seal_media(
+        self,
+        source_key: str,
+        dest_key: str,
+        manifest_payload: dict[str, Any],
+        retention_days: int,
+    ) -> _SealedMedia:
+        """Embed the manifest, then write the result into the locked vault.
+
+        Read-then-write rather than a server-side copy, for two reasons that
+        both matter: the manifest has to be injected between the read and the
+        write, and hashing the outgoing buffer means the digest Notary
+        certifies is computed over the exact bytes it seals. A hash produced
+        at any other layer would leave a gap between what was measured and
+        what was stored.
+        """
+        body = self.storage.get_bytes(self.settings.b2_bucket_workbench, source_key)
+
+        embedded_by = "none"
+        try:
+            body = embed_bytes(body, manifest_payload)
+            embedded_by = "notary"
+        except EmbeddingError as exc:
+            # A provider that returned something other than a parseable MP4.
+            # The sidecar manifest.json still ships, so provenance survives --
+            # but the certificate must not claim an embedding that is absent.
+            log.warning("could not embed manifest into the media: %s", exc)
+
+        digest = hashlib.sha256(body).hexdigest()
+
+        stored = self.storage.put(
+            self.settings.b2_bucket_vault,
+            dest_key,
+            body,
+            content_type="video/mp4",
+            retention_days=retention_days,
+            cache_control="public, max-age=31536000, immutable",
+        )
+
+        if embedded_by == "notary":
+            passed, detail = verify_bytes(body)
+            if not passed:  # pragma: no cover - would indicate a logic error
+                raise RuntimeError(f"embedded manifest failed self-check: {detail}")
+            log.info("manifest embedded and self-verified: %s", detail)
+
+        return _SealedMedia(
+            sha256=digest, url=stored.url, size=len(body), embedded_by=embedded_by
         )
 
     def _signing_identity(self) -> SigningIdentity | None:

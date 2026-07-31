@@ -138,13 +138,19 @@ async def submit_brief(
     )
 
     runner = ReviewRunner(settings)
-    session_id = str(uuid.uuid4())
+
+    # The session id must be minted HERE and handed to the runner, not
+    # generated inside it. The caller is told which stream to subscribe to
+    # before the run starts, so if the runner invented its own id the client
+    # would attach to a session that never emits a single event -- which is
+    # exactly the bug this replaced.
+    session_id = f"sess_{uuid.uuid4().hex[:12]}"
 
     async def _run() -> None:
         try:
-            await runner.run(brief)
+            await runner.run(brief, session_id=session_id)
         except Exception:  # noqa: BLE001
-            log.exception("background review failed")
+            log.exception("background review failed for session %s", session_id)
 
     background.add_task(_run)
 

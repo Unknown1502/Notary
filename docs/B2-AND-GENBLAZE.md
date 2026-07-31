@@ -96,7 +96,7 @@ Every arrow in that sentence is an SDK primitive. That chain *is* the product.
 ```
 notary-vault/          ← Object Lock enabled AT CREATION, COMPLIANCE mode
   vault/{tenant}/{campaign}/{asset_id}/
-      asset.mp4          media with the manifest embedded
+      asset.mp4          media with the manifest embedded (ISO-BMFF uuid box)
       manifest.json      provenance, canonical-hashed
       verdict.json       full Board finding + human sign-off
       certificate.json   signed envelope binding all of it

@@ -164,10 +164,18 @@ def build_pipeline(
     """
     name = f"notary-{brief.campaign_id}-take{iteration}"
 
-    pipeline = Pipeline(name, chain=True)
-
-    if moderation_hook is not None:
-        pipeline = _apply(pipeline, "moderation", moderation_hook)
+    # `moderation` is a CONSTRUCTOR keyword, not a builder method. Verified
+    # against genblaze-core 0.3.8:
+    #   Pipeline(name, tenant_id=None, *, project_id=None, chain=False,
+    #            structured_log=False, max_concurrency=None,
+    #            moderation: ModerationHook | None = None, ...)
+    #
+    # An earlier version of this file tried `pipeline.moderation(hook)` through
+    # a tolerant helper, which found no such method and silently continued --
+    # meaning the deterministic screen never attached and its findings never
+    # reached step metadata. The review still ran, so nothing looked broken;
+    # only the manifest-integration claim was quietly false.
+    pipeline = Pipeline(name, chain=True, moderation=moderation_hook)
 
     pipeline = pipeline.step(
         providers.image,
@@ -229,13 +237,40 @@ def make_sink(settings: Settings) -> Any:
     if not GENBLAZE_AVAILABLE:
         return None
 
-    from ..genblaze_compat import ObjectStorageSink, S3StorageBackend
+    from ..genblaze_compat import S3_AVAILABLE, ObjectStorageSink, S3StorageBackend
 
-    backend = S3StorageBackend.for_backblaze(
-        bucket=settings.b2_bucket_workbench,
-        key_id=settings.b2_key_id,
-        application_key=settings.b2_application_key,
-        endpoint=settings.b2_endpoint,
-        region=settings.b2_region,
-    )
+    if not S3_AVAILABLE:
+        # Notary writes through its own boto3 client anyway, so a missing sink
+        # costs streaming persistence during the run, not correctness.
+        log.info("genblaze-s3 not installed; running without a pipeline sink")
+        return None
+
+    # Exact signature (verified against genblaze-s3):
+    #   for_backblaze(bucket=None, *, region=None, key_id=None, app_key=None,
+    #                 public_url_base=None, auto_lifecycle=False,
+    #                 preflight=True)
+    # Note `app_key`, not `application_key`, and there is no `endpoint`
+    # parameter -- the endpoint is derived from the region.
+    # `for_backblaze` runs a preflight HeadBucket by default, so this is a
+    # network call that raises StorageError on bad credentials, a wrong region,
+    # or a missing bucket. Failing the whole run for it would be wrong:
+    # certification writes through Notary's own boto3 client, so the sink only
+    # adds streaming persistence during generation. Degrade loudly instead.
+    try:
+        backend = S3StorageBackend.for_backblaze(
+            bucket=settings.b2_bucket_workbench,
+            region=settings.b2_region,
+            key_id=settings.b2_key_id,
+            app_key=settings.b2_application_key,
+            public_url_base=settings.b2_public_vault_base,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "genblaze sink preflight failed (%s). Continuing without it; "
+            "assets are still persisted by Notary's own B2 client. Check "
+            "NOTARY_B2_REGION and that the workbench bucket exists.",
+            exc,
+        )
+        return None
+
     return ObjectStorageSink(backend)
