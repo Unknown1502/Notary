@@ -175,18 +175,35 @@ def build_pipeline(
     # meaning the deterministic screen never attached and its findings never
     # reached step metadata. The review still ran, so nothing looked broken;
     # only the manifest-integration claim was quietly false.
+    # Chain only when there is something to chain FROM. GMI Cloud's image
+    # registry currently offers only editing models, which need an input image,
+    # so with no text-to-image model configured the keyframe step is skipped and
+    # the pipeline runs text-to-video directly.
+    #
+    # chain=True is still correct in the single-step case -- it describes how
+    # steps feed each other, and costs nothing when there is one.
+    chained = bool(settings.image_model)
+
     pipeline = Pipeline(name, chain=True, moderation=moderation_hook)
 
-    pipeline = pipeline.step(
-        providers.image,
-        model=settings.image_model,
-        prompt=compose_storyboard_prompt(brief, guidance),
-        modality=Modality.IMAGE,
-        aspect_ratio=brief.channel.aspect_ratio,
-    )
+    if chained:
+        pipeline = pipeline.step(
+            providers.image,
+            model=settings.image_model,
+            prompt=compose_storyboard_prompt(brief, guidance),
+            modality=Modality.IMAGE,
+            aspect_ratio=brief.channel.aspect_ratio,
+        )
+    else:
+        log.info(
+            "no image model configured; running text-to-video directly "
+            "(set NOTARY_IMAGE_MODEL to re-enable the chained keyframe step)"
+        )
 
     video_kwargs: dict[str, Any] = {
-        "model": settings.video_model,
+        # An image-to-video model cannot start a pipeline, and a text-to-video
+        # model ignores an input frame. The model has to match the shape.
+        "model": settings.chained_video_model if chained else settings.video_model,
         "prompt": compose_video_prompt(brief, guidance),
         "modality": Modality.VIDEO,
         "duration": brief.channel.duration_seconds,

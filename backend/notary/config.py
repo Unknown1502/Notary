@@ -79,10 +79,42 @@ class Settings(BaseSettings):
     luma_api_key: str | None = None
     openai_api_key: str | None = None
 
-    image_model: str = "seedream-5.0-lite"
-    video_model: str = "kling-image2video-v2.1-master"
-    video_fallback_model: str = "ray-2"
-    board_vision_model: str = "qwen2.5-vl-72b-instruct"
+    # Model ids verified against a live GMI Cloud account (2026-07-31) by
+    # listing /v1/models and the connector's own registries. The previous
+    # defaults were taken from documentation and were all wrong:
+    #
+    #   seedream-5.0-lite          not present in the image registry
+    #   kling-image2video-v2.1-...  wrong case; ids are case-sensitive
+    #   qwen2.5-vl-72b-instruct     404 "no matching target server"
+    #
+    # None of these would have surfaced until a live run, and two of them look
+    # like infrastructure faults rather than configuration errors.
+    image_model: str = ""
+    """Text-to-image for the storyboard keyframe.
+
+    Empty by default because GMI Cloud's image registry currently exposes only
+    editing models (bria-eraser, gpt-image-2-edit, reve-remix, seededit-i2i),
+    all of which require an input image. With no text-to-image model there is
+    nothing to chain *from*, so the pipeline runs text-to-video directly. Set
+    this to a real t2i model id to re-enable the chained keyframe step.
+    """
+
+    video_model: str = "Kling-Text2Video-V2.1-Master"
+    video_fallback_model: str = "seedance-2-0-260128"
+    """Both from the connector's video registry. Fallback is a different model
+    family on purpose, so a Kling-side fault has somewhere to go."""
+
+    chained_video_model: str = "Kling-Image2Video-V2.1-Master"
+    """Used instead of `video_model` when `image_model` is set, so the
+    storyboard frame is what gets animated."""
+
+    board_vision_model: str = "google/gemini-3-flash-preview"
+    """Multimodal and cheap, which matters because the Board reviews every
+    take including rejected ones. `openai/gpt-5.1` is the stronger fallback.
+
+    NOT yet confirmed to accept image content -- the probe was blocked by an
+    account balance of zero, not by a capability error. See docs/SPIKES.md #3.
+    """
 
     step_timeout_seconds: int = 600
     max_board_iterations: int = 3
