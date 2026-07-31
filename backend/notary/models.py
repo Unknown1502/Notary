@@ -381,6 +381,20 @@ class Certificate(Base):
     verdict_key: str
     thumbnail_url: str | None = None
 
+    asset_version_id: str | None = None
+    """The exact immutable version that was sealed.
+
+    Recorded because a key alone is not a stable reference on a versioned
+    bucket. Anyone with write access can place a delete marker over the key,
+    after which a plain GET returns 404 -- while the sealed version sits
+    underneath, still protected by Object Lock and still byte-identical.
+
+    Verified against live B2: deleting the version itself is refused with
+    AccessDenied, but the delete marker succeeds. Without this field a
+    certificate could be made to *look* broken by someone who cannot actually
+    alter a single byte of it.
+    """
+
     sha256: str
     manifest_hash: str
     signature: SignatureBlock | None = None

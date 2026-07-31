@@ -102,6 +102,8 @@ class _SealedMedia:
     url: str
     size: int
     embedded_by: str
+    version_id: str | None = None
+    """The immutable version. See Certificate.asset_version_id."""
     """'notary', 'genblaze', or 'none'. Surfaced on the certificate so it
     never claims an embedding that did not happen."""
 
@@ -569,7 +571,20 @@ class ReviewRunner:
             retention_days=retention,
             identity=identity,
             require_signing=self.settings.require_signing,
+            asset_version_id=sealed.version_id,
         )
+
+        if self.storage.vault_is_private:
+            # A private bucket cannot be fetched with a bare URL, and a
+            # presigned one expires -- so the certificate must not carry
+            # either. It points at a durable Notary endpoint that mints a
+            # fresh presigned URL per request. The object key is already on
+            # the certificate, so an auditor with their own read credentials
+            # can still verify directly against B2 without going through us.
+            certificate.asset_url = (
+                f"{self.settings.public_base_url.rstrip('/')}"
+                f"/api/certificates/{certificate.certificate_id}/asset"
+            )
 
         await asyncio.to_thread(
             self.storage.put_json,
@@ -656,7 +671,11 @@ class ReviewRunner:
             log.info("manifest embedded and self-verified: %s", detail)
 
         return _SealedMedia(
-            sha256=digest, url=stored.url, size=len(body), embedded_by=embedded_by
+            sha256=digest,
+            url=stored.url,
+            size=len(body),
+            embedded_by=embedded_by,
+            version_id=stored.version_id,
         )
 
     def _signing_identity(self) -> SigningIdentity | None:

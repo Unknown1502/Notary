@@ -7,7 +7,7 @@ Run this once, before anything else:
 
 The single most important thing it does is create the vault bucket with
 **Object Lock enabled at creation**. Object Lock cannot be retrofitted onto an
-existing bucket — if you forget, the fix is to delete the bucket and start
+existing bucket -- if you forget, the fix is to delete the bucket and start
 over, which is why this is an explicit script and not a lazy side effect of the
 first upload.
 
@@ -55,21 +55,21 @@ def main() -> int:
             print("aborted")
             return 1
 
-    print("creating buckets…")
+    print("creating buckets...")
     for bucket, status in storage.create_buckets().items():
         print(f"  {bucket}: {status}")
 
-    print("configuring lifecycle…")
+    print("configuring lifecycle...")
     print(f"  {storage.configure_lifecycle()}")
 
-    print("configuring CORS…")
+    print("configuring CORS...")
     print(f"  {storage.configure_cors()}")
     print(
         "\n  (CORS matters: without it, browser <video> playback from B2 fails "
         "with an opaque error and no server-side symptom.)"
     )
 
-    print("\nverifying object lock…")
+    print("\nverifying object lock...")
     report = storage.bucket_report()
     for label, entry in report.get("buckets", {}).items():
         lock = entry.get("object_lock")

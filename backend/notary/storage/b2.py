@@ -31,6 +31,8 @@ undeletable test garbage on day one.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import json
 import logging
@@ -67,6 +69,21 @@ class StoredObject:
     url: str
     retention_until: datetime | None = None
     retention_mode: str | None = None
+
+    version_id: str | None = None
+    """The specific immutable version, and the thing that actually matters.
+
+    B2 buckets keep all versions. On such a bucket `delete_object` without a
+    version id does NOT remove anything -- it places a *delete marker* that
+    becomes the new current version, so a plain GET or HEAD on the key returns
+    404 while the sealed version sits underneath, untouched and still
+    protected by Object Lock.
+
+    A certificate that records only a key can therefore be made to look broken
+    by anyone with write access, even though they cannot alter the sealed
+    bytes. Recording the version id closes that: the exact certified version
+    stays addressable no matter what is layered on top of the key.
+    """
 
     @property
     def is_sealed(self) -> bool:
@@ -165,22 +182,45 @@ class B2Storage:
         expiring the media loses no accountability.
         """
         days = self.settings.workbench_expiry_days
+
+        # B2 buckets keep all versions by default, which changes what
+        # "expire" means. On a versioned bucket an Expiration rule does not
+        # remove anything -- it makes the current version noncurrent and
+        # leaves a delete marker. Three rules are therefore needed, and B2
+        # rejects the configuration outright (MalformedXML) if the
+        # ExpiredObjectDeleteMarker rule is missing for the same prefix:
+        #
+        #   1. expire the current version after N days
+        #   2. expire noncurrent versions, which is what actually frees bytes
+        #   3. sweep the delete markers left behind by (1)
+        #
+        # Without 2 and 3 the drafts are invisible but still billed, forever.
+        rules = [
+            {
+                "ID": "expire-draft-current",
+                "Status": "Enabled",
+                "Filter": {"Prefix": "workbench/"},
+                "Expiration": {"Days": days},
+                "NoncurrentVersionExpiration": {"NoncurrentDays": 1},
+                "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1},
+            },
+            {
+                "ID": "purge-expired-delete-markers",
+                "Status": "Enabled",
+                "Filter": {"Prefix": "workbench/"},
+                "Expiration": {"ExpiredObjectDeleteMarker": True},
+            },
+        ]
+
         try:
             self.client.put_bucket_lifecycle_configuration(
                 Bucket=self.settings.b2_bucket_workbench,
-                LifecycleConfiguration={
-                    "Rules": [
-                        {
-                            "ID": "expire-drafts",
-                            "Status": "Enabled",
-                            "Filter": {"Prefix": "workbench/"},
-                            "Expiration": {"Days": days},
-                            "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1},
-                        }
-                    ]
-                },
+                LifecycleConfiguration={"Rules": rules},
             )
-            return f"workbench/ expires after {days} day(s)"
+            return (
+                f"workbench/ current versions expire after {days} day(s), "
+                "noncurrent after 1, delete markers swept"
+            )
         except ClientError as exc:
             log.error("lifecycle configuration failed: %s", exc)
             return f"error: {exc}"
@@ -246,16 +286,37 @@ class B2Storage:
             kwargs["ObjectLockMode"] = "COMPLIANCE"
             kwargs["ObjectLockRetainUntilDate"] = retain_until
 
+            # S3 REQUIRES Content-MD5 on any PutObject carrying Object Lock
+            # parameters, and B2 enforces it. Without the header the request is
+            # rejected with a bare InvalidRequest that says nothing about the
+            # cause -- it looks exactly like a misconfigured bucket.
+            #
+            # boto3 would normally supply this, but the client is built with
+            # request_checksum_calculation="when_required" (needed to keep B2's
+            # S3 layer happy on streaming uploads), which suppresses it. So it
+            # is computed explicitly here. MD5 is used for transport integrity
+            # only, because that is what the API specifies; it is not a
+            # security property, and the provenance hashes are SHA-256.
+            kwargs["ContentMD5"] = base64.b64encode(
+                hashlib.md5(body).digest()  # noqa: S324 - required by the S3 API
+            ).decode("ascii")
+
         try:
             response = self.client.put_object(**kwargs)
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
+            message = exc.response.get("Error", {}).get("Message", str(exc))
             if retention_days and code in {"InvalidRequest", "InvalidBucketState"}:
                 raise StorageUnavailable(
-                    f"Object Lock write to '{bucket}' was rejected ({code}). "
-                    "Object Lock must be enabled AT BUCKET CREATION and cannot "
-                    "be added later. Run scripts/bootstrap_b2.py against a new "
-                    "bucket."
+                    f"Object Lock write to '{bucket}' was rejected ({code}): "
+                    f"{message}\n"
+                    "Two causes are common, and they need different fixes:\n"
+                    "  1. Object Lock was not enabled at bucket creation. It "
+                    "cannot be added later -- create a new bucket.\n"
+                    "  2. The request was missing Content-MD5, which S3 "
+                    "requires whenever Object Lock parameters are present.\n"
+                    f"Check the bucket's lock state with: "
+                    f"aws s3api get-object-lock-configuration --bucket {bucket}"
                 ) from exc
             raise
 
@@ -276,6 +337,34 @@ class B2Storage:
             url=self.public_url(bucket, key),
             retention_until=retain_until,
             retention_mode="COMPLIANCE" if retain_until else None,
+            version_id=response.get("VersionId"),
+        )
+
+    def get_version_bytes(self, bucket: str, key: str, version_id: str) -> bytes:
+        """Read one specific version, ignoring anything layered over the key.
+
+        This is how a certified asset must be fetched. A plain GET resolves to
+        the current version, which a delete marker or a later upload can
+        displace; addressing the version id retrieves exactly the bytes that
+        were sealed.
+        """
+        response = self.client.get_object(Bucket=bucket, Key=key, VersionId=version_id)
+        return response["Body"].read()
+
+    def version_exists(self, bucket: str, key: str, version_id: str) -> bool:
+        try:
+            self.client.head_object(Bucket=bucket, Key=key, VersionId=version_id)
+            return True
+        except ClientError:
+            return False
+
+    def presigned_version_url(
+        self, bucket: str, key: str, version_id: str, *, expires_in: int = 3600
+    ) -> str:
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key, "VersionId": version_id},
+            ExpiresIn=expires_in,
         )
 
     def put_json(
@@ -411,6 +500,35 @@ class B2Storage:
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=expires_in,
         )
+
+    def serve_url(self, bucket: str, key: str, *, expires_in: int = 3600) -> str:
+        """A URL a browser can actually fetch, whichever bucket type this is.
+
+        Public bucket with a friendly base configured -> a durable, permanent
+        URL. Private bucket -> a presigned URL that expires.
+
+        Callers that need a *stable* reference (a certificate, a library entry)
+        must not persist the presigned form; they store the object key and let
+        the API mint a fresh URL per request. See
+        `GET /api/certificates/{id}/asset`.
+        """
+        if self.settings.b2_public_vault_base and bucket == self.settings.b2_bucket_vault:
+            return self.public_url(bucket, key)
+        try:
+            return self.presigned_url(bucket, key, expires_in=expires_in)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not presign s3://%s/%s: %s", bucket, key, exc)
+            return self.public_url(bucket, key)
+
+    @property
+    def vault_is_private(self) -> bool:
+        """Whether certified media needs presigning to be fetchable.
+
+        Inferred from configuration rather than probed: a public bucket is only
+        usable as one if a friendly URL base is configured, and without that
+        base the durable-URL path cannot be built anyway.
+        """
+        return not bool(self.settings.b2_public_vault_base)
 
     # ------------------------------------------------------------- diagnostics
 

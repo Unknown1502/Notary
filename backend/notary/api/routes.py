@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
 from sse_starlette.sse import EventSourceResponse
 
 from ..board.rubric import describe_profiles
@@ -367,6 +368,53 @@ async def certificate(certificate_id: str) -> dict[str, Any]:
         ),
         "is_sealed": cert.is_sealed,
     }
+
+
+@router.get("/certificates/{certificate_id}/asset")
+async def certificate_asset(certificate_id: str) -> RedirectResponse:
+    """Durable URL for a certified asset, backed by a private bucket.
+
+    A presigned URL expires, so a certificate must never embed one -- a
+    provenance record pointing at a dead link is worse than no record. Instead
+    the certificate stores the object key, and this endpoint mints a fresh
+    presigned URL on each request and redirects to it.
+
+    The result: a permanent, shareable reference to certified media that lives
+    in a private bucket. For a public bucket with NOTARY_B2_PUBLIC_VAULT_BASE
+    set, this still works but simply redirects to the durable B2 URL.
+    """
+    cert = get_store().get_certificate(certificate_id)
+    if cert is None:
+        raise HTTPException(status_code=404, detail=f"no certificate {certificate_id}")
+
+    storage = get_storage()
+    if not storage.available:
+        raise HTTPException(
+            status_code=503,
+            detail="B2 is not configured; the asset cannot be served.",
+        )
+
+    settings = get_settings()
+
+    if cert.asset_version_id:
+        # Serve the exact sealed version. Resolving the bare key would follow a
+        # delete marker (404) or a later upload -- neither of which is the
+        # object this certificate attests to. Verified against live B2: the
+        # sealed version remains readable after a delete marker is placed.
+        url = await asyncio.to_thread(
+            storage.presigned_version_url,
+            settings.b2_bucket_vault,
+            cert.asset_key,
+            cert.asset_version_id,
+            expires_in=3600,
+        )
+    else:
+        url = await asyncio.to_thread(
+            storage.serve_url, settings.b2_bucket_vault, cert.asset_key, expires_in=3600
+        )
+    # 307 preserves the method and tells caches this is not permanent -- the
+    # target changes on every request by design.
+    return RedirectResponse(url=url, status_code=307)
 
 
 @router.post("/certificates/{certificate_id}/verify")

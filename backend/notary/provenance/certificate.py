@@ -166,6 +166,7 @@ def build_certificate(
     require_signing: bool,
     object_lock_mode: str = "COMPLIANCE",
     parameters: dict[str, Any] | None = None,
+    asset_version_id: str | None = None,
 ) -> Certificate:
     """Assemble and sign the certificate.
 
@@ -201,6 +202,7 @@ def build_certificate(
         run_id=take.run_id,
         asset_key=asset_key,
         asset_url=asset_url,
+        asset_version_id=asset_version_id,
         manifest_key=manifest_key,
         verdict_key=verdict_key,
         thumbnail_url=thumbnail_url,
