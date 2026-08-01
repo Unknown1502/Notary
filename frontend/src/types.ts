@@ -188,4 +188,12 @@ export interface Health {
   ffmpeg_available: boolean;
   recordings: number;
   stats: Record<string, number | boolean>;
+
+  /** Live B2 posture. Absent when storage is unconfigured (replay mode). */
+  storage?: {
+    available: boolean;
+    reason?: string;
+    retention_days?: number;
+    buckets?: Record<string, { name: string; object_lock?: string }>;
+  };
 }

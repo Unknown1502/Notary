@@ -1,35 +1,43 @@
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { api } from "../api";
 import type { Certificate, VerificationReport } from "../types";
 import { Findings } from "./Findings";
+import { Lineage } from "./Screens";
+import { Button, IconCheck, IconClose, IconShield, Panel, Pill, useToast } from "./ui";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="field-row">
-      <span className="field-row__key">{label}</span>
-      <span className="field-row__value">{children}</span>
+    <div className="field">
+      <span className="label">{label}</span>
+      <span className="field__v">{children}</span>
     </div>
   );
 }
 
-function daysUntil(iso: string): number {
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
-}
+const daysUntil = (iso: string) =>
+  Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 
-export function CertificatePanel({ certificate }: { certificate: Certificate }) {
+export function CertificateView({
+  certificate,
+  onBack,
+}: {
+  certificate: Certificate;
+  onBack: () => void;
+}) {
+  const toast = useToast();
   const [report, setReport] = useState<VerificationReport | null>(null);
   const [verifying, setVerifying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const runVerify = async () => {
     setVerifying(true);
-    setError(null);
     setReport(null);
     try {
       const result = await api.verify(certificate.certificate_id);
       setReport(result.report);
+      toast(result.summary, result.passed ? "success" : "error");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Verification failed.");
+      toast(exc instanceof Error ? exc.message : "Verification failed.", "error");
     } finally {
       setVerifying(false);
     }
@@ -40,125 +48,156 @@ export function CertificatePanel({ certificate }: { certificate: Certificate }) 
 
   return (
     <div className="stack">
-      {/* The seal. Brass appears here and nowhere else in the interface. */}
-      <div className="seal">
-        <p className="seal__label">
-          {signed ? "Sealed · Trust Mode 2" : "Sealed · Trust Mode 1"}
+      <div className="row">
+        <Button variant="ghost" onClick={onBack}>
+          ← Library
+        </Button>
+      </div>
+
+      {/* The seal. The only place in the interface where amber fills anything —
+          spending the one warm colour on the one irreversible act. */}
+      <motion.div
+        className="seal"
+        initial={{ opacity: 0, scale: 0.99 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      >
+        <p className="seal__label label">
+          <IconShield />
+          {signed ? "Sealed · Trust Mode 2 · Ed25519" : "Sealed · Trust Mode 1"}
         </p>
-        <p className="seal__retention">
+        <p className="dim" style={{ lineHeight: "var(--lh-body)", maxWidth: "62ch" }}>
           {remaining > 0 ? (
             <>
               Under Backblaze B2 Object Lock ({certificate.object_lock_mode}) for
-              another <strong>{remaining} day{remaining === 1 ? "" : "s"}</strong>,
-              until {new Date(certificate.retention_until).toLocaleDateString()}.
-              Neither the video nor this verdict can be altered or deleted before
-              then — by anyone, including the account owner.
+              another <strong style={{ color: "var(--text)" }}>{remaining} day
+              {remaining === 1 ? "" : "s"}</strong>, until{" "}
+              {new Date(certificate.retention_until).toLocaleDateString()}. Neither
+              the media nor this verdict can be altered or deleted before then —
+              by anyone, including the account owner.
             </>
           ) : (
-            <>Retention lapsed. Still verifiable, no longer immutable.</>
+            <>Retention has lapsed. Still verifiable, no longer immutable.</>
           )}
         </p>
-      </div>
+      </motion.div>
 
-      {certificate.asset_url && (
-        <video className="frame" src={certificate.asset_url} controls playsInline />
-      )}
+      <div className="split">
+        <div className="stack">
+          <div className="media">
+            <video src={certificate.asset_url} controls playsInline preload="metadata" />
+          </div>
 
-      <section className="panel">
-        <div className="panel__head">
-          <h2 className="eyebrow">Provenance</h2>
-          <span className="eyebrow">{certificate.certificate_id}</span>
+          <Panel title="Lineage" flush>
+            <Lineage nodes={certificate.lineage} />
+          </Panel>
         </div>
-        <div className="panel__body">
-          <Field label="Provider">{certificate.provider}</Field>
-          <Field label="Model">
-            <span className="mono">{certificate.model}</span>
-          </Field>
-          <Field label="Prompt">{certificate.prompt}</Field>
-          <Field label="Asset SHA-256">
-            <p className="hash">{certificate.sha256}</p>
-          </Field>
-          <Field label="Manifest hash">
-            <p className="hash">{certificate.manifest_hash}</p>
-          </Field>
-          {certificate.signature && (
-            <>
-              <Field label="Signature">
-                <p className="hash">{certificate.signature.signature}</p>
-              </Field>
-              <Field label="Signing key">
-                <span className="mono">
-                  {certificate.signature.algorithm} · {certificate.signature.key_id}
-                </span>
-              </Field>
-              <Field label="Public key">
-                <p className="hash">{certificate.signature.public_key}</p>
-              </Field>
-            </>
-          )}
-        </div>
-      </section>
 
-      <section className="panel">
-        <div className="panel__head">
-          <h2 className="eyebrow">Verify against live storage</h2>
-          <button className="btn" onClick={runVerify} disabled={verifying}>
-            {verifying ? "Hashing…" : "Verify now"}
-          </button>
-        </div>
-        <div className="panel__body">
-          <p style={{ marginTop: 0, color: "var(--ink-dim)", fontSize: "var(--step--1)" }}>
-            Fetches the object from Backblaze B2 right now, recomputes its
-            SHA-256 over the bytes returned, and checks the Ed25519 signature
-            against the canonical manifest hash. Nothing stored is trusted.
-          </p>
+        <div className="stack">
+          <Panel
+            title="Verify against live storage"
+            actions={
+              <Button variant="primary" onClick={runVerify} disabled={verifying}>
+                {verifying ? "Hashing…" : "Verify now"}
+              </Button>
+            }
+            flush
+          >
+            <p
+              className="dim"
+              style={{
+                padding: "var(--s3) var(--s4)",
+                fontSize: "var(--t-micro)",
+                lineHeight: "var(--lh-body)",
+                borderBottom: report ? "1px solid var(--hairline)" : undefined,
+              }}
+            >
+              Fetches the object from Backblaze B2 right now, recomputes SHA-256
+              over the bytes that actually arrive, and checks the Ed25519
+              signature against the canonical manifest hash. Nothing stored is
+              trusted.
+            </p>
 
-          {error && (
-            <div className="notice notice--warn" role="alert">
-              {error}
-            </div>
-          )}
-
-          {report && (
-            <>
-              {report.checks.map((check) => (
-                <div
-                  key={check.name}
-                  className={`check check--${check.passed ? "pass" : "fail"}`}
+            <AnimatePresence>
+              {report && (
+                <motion.ul
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 34 }}
                 >
-                  <span className="check__mark" aria-hidden="true">
-                    {check.passed ? "✓" : "✕"}
-                  </span>
-                  <div>
-                    <p className="check__name">{check.name.replace(/_/g, " ")}</p>
-                    <p className="check__detail">{check.detail}</p>
-                    {check.observed && check.name === "asset_integrity" && (
-                      <p className="hash">{check.observed}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-              <p
-                className="eyebrow"
-                style={{ marginTop: "var(--gap)", color: "var(--ink-dim)" }}
-              >
-                {report.bytes_hashed.toLocaleString()} bytes re-hashed from{" "}
-                {new URL(report.source).host}
-              </p>
-            </>
-          )}
-        </div>
-      </section>
+                  {report.checks.map((check, i) => (
+                    <motion.li
+                      key={check.name}
+                      className="finding"
+                      data-outcome={check.passed ? "pass" : "fail"}
+                      initial={{ opacity: 0, y: -3 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.06 }}
+                    >
+                      <span className="finding__mark">
+                        {check.passed ? <IconCheck /> : <IconClose />}
+                      </span>
+                      <span className="finding__label">
+                        {check.name.replace(/_/g, " ")}
+                      </span>
+                      <span />
+                      <p className="finding__rationale">{check.detail}</p>
+                    </motion.li>
+                  ))}
+                  <li style={{ padding: "var(--s3) var(--s4)" }}>
+                    <p className="label">
+                      {report.bytes_hashed.toLocaleString()} bytes re-hashed
+                    </p>
+                  </li>
+                </motion.ul>
+              )}
+            </AnimatePresence>
+          </Panel>
 
-      <section className="panel">
-        <div className="panel__head">
-          <h2 className="eyebrow">Sealed verdict</h2>
-          <span className="eyebrow">{certificate.verdict.decision}</span>
+          <Panel title="Provenance" flush>
+            <div className="fields">
+              <Field label="Certificate">
+                <span className="mono">{certificate.certificate_id}</span>
+              </Field>
+              <Field label="Provider">{certificate.provider}</Field>
+              <Field label="Model">
+                <span className="mono">{certificate.model}</span>
+              </Field>
+              <Field label="Prompt">{certificate.prompt}</Field>
+              <Field label="Asset SHA-256">
+                <p className="hash">{certificate.sha256}</p>
+              </Field>
+              <Field label="Manifest hash">
+                <p className="hash">{certificate.manifest_hash}</p>
+              </Field>
+              {certificate.signature && (
+                <>
+                  <Field label="Signature">
+                    <p className="hash">{certificate.signature.signature}</p>
+                  </Field>
+                  <Field label="Signing key">
+                    <span className="mono">
+                      {certificate.signature.algorithm} · {certificate.signature.key_id}
+                    </span>
+                  </Field>
+                  <Field label="Public key">
+                    <p className="hash">{certificate.signature.public_key}</p>
+                  </Field>
+                </>
+              )}
+            </div>
+          </Panel>
+
+          <Panel
+            title="Sealed verdict"
+            actions={<Pill accent>{certificate.verdict.decision}</Pill>}
+            flush
+          >
+            <Findings findings={certificate.verdict.criteria} />
+          </Panel>
         </div>
-        <div className="panel__body">
-          <Findings findings={certificate.verdict.criteria} />
-        </div>
-      </section>
+      </div>
     </div>
   );
 }

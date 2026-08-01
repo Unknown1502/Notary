@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { api, useReviewStream } from "./api";
-import { CertificatePanel } from "./components/Certificate";
+import { CertificateView } from "./components/Certificate";
+import { Evidence } from "./components/Evidence";
 import { Disposition, Findings } from "./components/Findings";
-import { Library, Lineage, Queue } from "./components/Panels";
-import { Trust } from "./components/Trust";
+import { Library, Lineage, Queue, Recordings } from "./components/Screens";
+import { Shell, type Tab } from "./components/Shell";
+import {
+  Button,
+  Notice,
+  Panel,
+  Pill,
+  ToastHost,
+  useTheme,
+  useToast,
+} from "./components/ui";
 import type {
   Certificate,
   Finding,
@@ -15,15 +26,12 @@ import type {
   StreamEvent,
 } from "./types";
 
-type Tab = "review" | "queue" | "library" | "trust";
-
 /**
  * Fold the event stream into the state the review screen renders.
  *
- * Events arrive incrementally and a criterion can be superseded (a revision
- * re-reviews everything), so findings are keyed by criterion and the latest
- * wins. Replaying the whole reduction on every event keeps this correct on
- * reconnect, where the server re-sends the backlog.
+ * Replaying the whole reduction on every event keeps this correct across
+ * reconnects, where the server re-sends the backlog. A new take clears prior
+ * findings, because a revision re-reviews everything.
  */
 function reduceStream(events: StreamEvent[]) {
   const findings = new Map<string, Finding>();
@@ -34,7 +42,6 @@ function reduceStream(events: StreamEvent[]) {
   let assetUrl: string | null = null;
   let certificateId: string | null = null;
   let fallback: { from: string; to: string; code: string } | null = null;
-  let sealed: Record<string, unknown> | null = null;
   let replayed = false;
   let outcome: string | null = null;
 
@@ -47,7 +54,6 @@ function reduceStream(events: StreamEvent[]) {
         const n = Number(event.take_number ?? takeNumber + 1);
         if (n > takeNumber) {
           takeNumber = n;
-          // A new take invalidates the previous take's findings.
           findings.clear();
           decision = null;
         }
@@ -61,10 +67,8 @@ function reduceStream(events: StreamEvent[]) {
           kind: event.kind as Finding["kind"],
           severity: event.severity as Finding["severity"],
           rationale: String(event.rationale ?? ""),
-          confidence:
-            typeof event.confidence === "number" ? event.confidence : null,
-          measurement:
-            (event.measurement as Finding["measurement"]) ?? null,
+          confidence: typeof event.confidence === "number" ? event.confidence : null,
+          measurement: (event.measurement as Finding["measurement"]) ?? null,
           evidence_frame: (event.evidence_frame as string | null) ?? null,
         });
         break;
@@ -92,7 +96,6 @@ function reduceStream(events: StreamEvent[]) {
         };
         break;
       case "certification.sealed":
-        sealed = event as Record<string, unknown>;
         certificateId = String(event.certificate_id);
         break;
       case "escalated":
@@ -115,13 +118,15 @@ function reduceStream(events: StreamEvent[]) {
     assetUrl,
     certificateId,
     fallback,
-    sealed,
     replayed,
     outcome,
   };
 }
 
-export default function App() {
+function Console() {
+  const toast = useToast();
+  const { theme, toggle } = useTheme();
+
   const [tab, setTab] = useState<Tab>("review");
   const [health, setHealth] = useState<Health | null>(null);
   const [recordings, setRecordings] = useState<Recording[]>([]);
@@ -129,7 +134,6 @@ export default function App() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
   const [certificate, setCertificate] = useState<Certificate | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const { events, connected } = useReviewStream(sessionId);
   const state = useMemo(() => reduceStream(events), [events]);
@@ -139,238 +143,257 @@ export default function App() {
       const [q, l] = await Promise.all([api.queue(), api.library()]);
       setQueue(q.items);
       setAssets(l.assets);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Could not reach the API.");
+    } catch {
+      /* transient; the health strip already reports connectivity */
     }
   }, []);
 
   useEffect(() => {
-    api.health().then(setHealth).catch(() => setError("Backend unreachable."));
-    api.recordings().then((r) => setRecordings(r.recordings)).catch(() => undefined);
+    api.health().then(setHealth).catch(() => toast("Backend unreachable.", "error"));
+    api
+      .recordings()
+      .then((r) => setRecordings(r.recordings))
+      .catch(() => undefined);
     refresh();
-  }, [refresh]);
+  }, [refresh, toast]);
 
-  // A completed run changes the queue and the library, so re-read them.
   useEffect(() => {
     if (state.outcome) refresh();
   }, [state.outcome, refresh]);
 
-  const openCertificate = useCallback(async (id: string) => {
-    try {
-      const result = await api.certificate(id);
-      setCertificate(result.certificate);
-      setTab("library");
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Could not load certificate.");
-    }
-  }, []);
+  const openCertificate = useCallback(
+    async (id: string) => {
+      try {
+        const result = await api.certificate(id);
+        setCertificate(result.certificate);
+        setTab("library");
+      } catch (exc) {
+        toast(exc instanceof Error ? exc.message : "Could not load certificate.", "error");
+      }
+    },
+    [toast],
+  );
 
   const startReplay = async (id: string) => {
     setCertificate(null);
     try {
       const result = await api.replay(id);
       setSessionId(result.session_id);
+      toast("Replaying a recorded review.", "accent");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Could not start replay.");
+      toast(exc instanceof Error ? exc.message : "Could not start replay.", "error");
     }
   };
 
-  const mode = health?.runtime.mode ?? "…";
-  const isLive = mode === "live";
+  const crumb = {
+    review: sessionId ? "Review · live" : "Review",
+    queue: "Human queue",
+    library: certificate ? "Certified · certificate" : "Certified",
+    evidence: "Evidence",
+  }[tab];
 
   return (
-    <div className="shell">
-      <header className="masthead">
-        <h1 className="wordmark">Notary</h1>
-        <p className="masthead__tagline">
-          Every clip goes before the Board. Every approval is provable.
-        </p>
-        <span
-          className={`mode-pill mode-pill--${
-            state.replayed ? "replay" : isLive ? "live" : "replay"
-          }`}
+    <Shell
+      tab={tab}
+      onTab={(t) => {
+        setTab(t);
+        if (t !== "library") setCertificate(null);
+      }}
+      health={health}
+      queueDepth={queue.length}
+      theme={theme}
+      onToggleTheme={toggle}
+      crumb={<span>{crumb}</span>}
+    >
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`${tab}-${sessionId ?? ""}-${certificate?.certificate_id ?? ""}`}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
         >
-          <span className="mode-pill__dot" />
-          {state.replayed ? "replay" : mode}
-        </span>
-        {health && (
-          <span className="mode-pill">
-            <span className="mode-pill__dot" />
-            trust mode {health.runtime.trust_mode}
-          </span>
-        )}
-      </header>
-
-      {error && (
-        <div className="notice notice--warn" role="alert" style={{ marginBottom: "1rem" }}>
-          {error}
-        </div>
-      )}
-
-      <nav className="nav" role="tablist">
-        {(
-          [
-            ["review", "Review"],
-            ["queue", "Human queue"],
-            ["library", "Certified library"],
-            ["trust", "Evidence"],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            role="tab"
-            aria-selected={tab === key}
-            className="nav__tab"
-            onClick={() => setTab(key)}
-          >
-            {label}
-            {key === "queue" && queue.length > 0 && (
-              <span className="nav__count">{queue.length}</span>
-            )}
-          </button>
-        ))}
-      </nav>
-
-      {tab === "review" && (
-        <div className="stack">
-          {!sessionId && (
+          {/* ------------------------------------------------------ review */}
+          {tab === "review" && !sessionId && (
             <>
-              <div className="notice">
-                {isLive
-                  ? "Live generation is enabled. A full run takes several minutes; the recorded runs below reach the same screens immediately."
-                  : "This deployment is in replay mode. Each run below is the captured event stream of a real review, played back through the same API and the same interface."}
-              </div>
-
-              {recordings.length === 0 ? (
-                <div className="empty">
-                  <p className="empty__title">No recorded runs available</p>
-                  <p>Run scripts/seed_demo.py to generate demo recordings.</p>
+              <div className="page-head">
+                <div>
+                  <h1 className="page-title">Review</h1>
+                  <p className="page-sub">
+                    Every generated take is screened before it can ship. Measured
+                    criteria are computed from the file; perceptual ones are a
+                    model's judgement, and anything it cannot clear goes to a
+                    human rather than out the door.
+                  </p>
                 </div>
-              ) : (
-                <div className="grid">
-                  {recordings.map((rec) => (
-                    <article key={rec.session_id} className="panel">
-                      <div className="panel__body">
-                        <p className="eyebrow">
-                          {rec.certified
-                            ? "certified"
-                            : rec.escalated
-                              ? "escalated"
-                              : "rejected"}
-                        </p>
-                        <h3 style={{ margin: ".35rem 0", fontSize: "var(--step-1)" }}>
-                          {rec.title || rec.session_id}
-                        </h3>
-                        <p className="lineage__meta">
-                          {rec.verdicts.length} take
-                          {rec.verdicts.length === 1 ? "" : "s"} ·{" "}
-                          {rec.event_count} events
-                          {rec.took_fallback && " · provider fallback"}
-                        </p>
-                        <button
-                          className="btn"
-                          style={{ marginTop: "var(--gap-sm)" }}
-                          onClick={() => startReplay(rec.session_id)}
-                        >
-                          Watch the review
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {sessionId && (
-            <>
-              <div className="row">
-                <button
-                  className="btn btn--ghost"
-                  onClick={() => {
-                    setSessionId(null);
-                    setCertificate(null);
-                  }}
-                >
-                  ← All runs
-                </button>
-                {connected && <span className="eyebrow">streaming</span>}
-                {state.takeNumber > 0 && (
-                  <span className="eyebrow">
-                    take {String(state.takeNumber).padStart(2, "0")}
-                  </span>
+                {health && (
+                  <div className="row">
+                    <Pill>
+                      <span
+                        className={`dot${health.runtime.mode === "live" ? " dot--live" : ""}`}
+                      />
+                      {health.runtime.mode}
+                    </Pill>
+                    <Pill accent>trust mode {health.runtime.trust_mode}</Pill>
+                  </div>
                 )}
               </div>
 
-              {state.fallback && (
-                <div className="notice notice--warn">
-                  Provider fault <span className="mono">{state.fallback.code}</span> on{" "}
-                  <span className="mono">{state.fallback.from}</span>. Failed over to{" "}
-                  <span className="mono">{state.fallback.to}</span> on a
-                  parent-linked run — a provider fault earns a different provider,
-                  never a rewritten prompt.
+              <div className="stack">
+                {health?.runtime.mode !== "live" && (
+                  <Notice>
+                    This deployment replays captured event streams from real
+                    runs. Deterministic findings in them are genuine
+                    measurements of genuine pixels — only the generation is
+                    replayed, and every event is flagged as such.
+                  </Notice>
+                )}
+                <Recordings recordings={recordings} onPlay={startReplay} />
+              </div>
+            </>
+          )}
+
+          {tab === "review" && sessionId && (
+            <>
+              <div className="page-head">
+                <div>
+                  <h1 className="page-title">
+                    Take {String(state.takeNumber || 1).padStart(2, "0")}
+                  </h1>
+                  <p className="page-sub">
+                    {state.detail || "The Board is reviewing this take."}
+                  </p>
                 </div>
-              )}
-
-              <div className="docket">
-                <section className="stack">
-                  {state.assetUrl ? (
-                    <video className="frame" src={state.assetUrl} controls playsInline />
-                  ) : (
-                    <div className="frame" aria-hidden="true" />
+                <div className="row">
+                  {connected && (
+                    <Pill>
+                      <span className="dot dot--live" />
+                      streaming
+                    </Pill>
                   )}
-                  <section className="panel">
-                    <div className="panel__head">
-                      <h2 className="eyebrow">Lineage</h2>
-                    </div>
-                    <div className="panel__body">
-                      <Lineage nodes={state.lineage} />
-                    </div>
-                  </section>
-                </section>
+                  {state.replayed && <Pill>replay</Pill>}
+                  <Button variant="outline" onClick={() => setSessionId(null)}>
+                    All reviews
+                  </Button>
+                </div>
+              </div>
 
-                <section className="panel">
-                  <div className="panel__head">
-                    <h2 className="eyebrow">Findings</h2>
-                    <span className="eyebrow">{state.findings.length} criteria</span>
+              <div className="stack">
+                {state.fallback && (
+                  <Notice tone="accent">
+                    Provider fault <span className="mono">{state.fallback.code}</span> on{" "}
+                    <span className="mono">{state.fallback.from}</span>. Failed over to{" "}
+                    <span className="mono">{state.fallback.to}</span> on a parent-linked
+                    run — a provider fault earns a different provider, never a
+                    rewritten prompt.
+                  </Notice>
+                )}
+
+                <div className="split">
+                  <div className="stack">
+                    <div className="media">
+                      {state.assetUrl ? (
+                        <video src={state.assetUrl} controls playsInline />
+                      ) : (
+                        <div className="media media--empty">awaiting render</div>
+                      )}
+                    </div>
+                    <Panel title="Lineage" flush>
+                      <Lineage nodes={state.lineage} />
+                    </Panel>
                   </div>
-                  <div className="panel__body">
+
+                  <Panel
+                    title="Findings"
+                    actions={<span className="label">{state.findings.length} criteria</span>}
+                    flush
+                  >
                     <Findings findings={state.findings} />
                     {state.decision && (
                       <Disposition decision={state.decision} detail={state.detail} />
                     )}
                     {state.certificateId && (
-                      <button
-                        className="btn"
-                        style={{ marginTop: "var(--gap)" }}
-                        onClick={() => openCertificate(state.certificateId!)}
-                      >
-                        Open certificate
-                      </button>
+                      <div style={{ padding: "var(--s4)" }}>
+                        <Button
+                          variant="accent"
+                          onClick={() => openCertificate(state.certificateId!)}
+                        >
+                          Open certificate
+                        </Button>
+                      </div>
                     )}
-                  </div>
-                </section>
+                  </Panel>
+                </div>
               </div>
             </>
           )}
-        </div>
-      )}
 
-      {tab === "queue" && <Queue items={queue} onResolved={refresh} />}
+          {/* ------------------------------------------------------- queue */}
+          {tab === "queue" && (
+            <>
+              <div className="page-head">
+                <div>
+                  <h1 className="page-title">Human queue</h1>
+                  <p className="page-sub">
+                    Takes the Board declined to decide. Nothing here has been
+                    published, and a sign-off recorded here is sealed inside the
+                    verdict rather than beside it.
+                  </p>
+                </div>
+              </div>
+              <Queue items={queue} onResolved={refresh} />
+            </>
+          )}
 
-      {tab === "trust" && <Trust />}
+          {/* ----------------------------------------------------- library */}
+          {tab === "library" && (
+            certificate ? (
+              <CertificateView
+                certificate={certificate}
+                onBack={() => setCertificate(null)}
+              />
+            ) : (
+              <>
+                <div className="page-head">
+                  <div>
+                    <h1 className="page-title">Certified</h1>
+                    <p className="page-sub">
+                      Assets sealed into the Object-Locked vault. This index is
+                      rebuilt by listing the bucket — B2 is the system of record,
+                      so there is no database to disagree with it.
+                    </p>
+                  </div>
+                </div>
+                <Library assets={assets} onOpen={openCertificate} />
+              </>
+            )
+          )}
 
-      {tab === "library" &&
-        (certificate ? (
-          <div className="stack">
-            <button className="btn btn--ghost" onClick={() => setCertificate(null)}>
-              ← Library
-            </button>
-            <CertificatePanel certificate={certificate} />
-          </div>
-        ) : (
-          <Library assets={assets} onOpen={openCertificate} />
-        ))}
-    </div>
+          {/* ---------------------------------------------------- evidence */}
+          {tab === "evidence" && (
+            <>
+              <div className="page-head">
+                <div>
+                  <h1 className="page-title">Evidence</h1>
+                  <p className="page-sub">
+                    What is measured, what is proven, and — given the same
+                    weight — what is not.
+                  </p>
+                </div>
+              </div>
+              <Evidence />
+            </>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </Shell>
+  );
+}
+
+export default function App() {
+  return (
+    <ToastHost>
+      <Console />
+    </ToastHost>
   );
 }

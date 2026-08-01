@@ -1,4 +1,29 @@
+import { motion } from "framer-motion";
 import type { Finding, Measurement } from "../types";
+import { Gauge } from "./ui";
+
+/* ==========================================================================
+   The findings ledger
+
+   The one screen element that had to be invented rather than borrowed.
+
+   Half of Notary's findings are computed from pixels — aspect ratio, clip
+   duration, colour distance in CIE Lab, exact-match lexemes. Those are facts:
+   reproducible by anyone holding the file, with no trust in Notary required.
+   The other half are a vision model's opinions, which are useful and may be
+   wrong.
+
+   Rendering both as a uniform checklist would be a lie of presentation. So the
+   two are set in different registers:
+
+     MEASURED   mono label, an observed value against its limit, and a bar
+                showing the distance to that limit. Reads as instrument.
+     JUDGED     sans label, a confidence meter, prose rationale. Reads as
+                estimate — quieter, because an opinion should not shout as
+                loudly as a measurement.
+
+   A reviewer can tell facts from opinions without reading a word.
+   ========================================================================== */
 
 const MARK: Record<string, string> = {
   pass: "✓",
@@ -20,74 +45,98 @@ const LABEL: Record<string, string> = {
   prohibited_imagery: "Prohibited depiction",
 };
 
+type Reading = { value: string; limit: string; ratio: number };
+
 /**
- * Render a measurement as an instrument reading: observed against its limit.
+ * Turn a measurement into an instrument reading.
  *
- * Each criterion measures a different quantity, so the readout is chosen per
- * criterion rather than dumping the raw dict. A reviewer should be able to
- * read "dE 111.5 / limit 18" and understand the rejection without prose.
+ * `ratio` is how far the observed value sits toward its limit, so the bar
+ * encodes headroom. Each criterion measures a different quantity, so the
+ * mapping is per-criterion rather than a generic dump of the dict — a reviewer
+ * should read "111.5 / limit 18" and understand the rejection without prose.
  */
-function readout(criterion: string, m: Measurement | null) {
+function readingFor(criterion: string, m: Measurement | null): Reading | null {
   if (!m) return null;
-  const num = (k: string) => (typeof m[k] === "number" ? (m[k] as number) : null);
+  const n = (k: string) => (typeof m[k] === "number" ? (m[k] as number) : null);
 
   switch (criterion) {
     case "aspect_ratio": {
-      const observed = num("observed_ratio");
-      const expected = num("expected_ratio");
-      if (observed == null || expected == null) return null;
-      return { value: observed.toFixed(3), limit: `target ${expected.toFixed(3)}` };
+      const observed = n("observed_ratio");
+      const drift = n("relative_drift");
+      const tol = n("tolerance") ?? 0.02;
+      if (observed == null) return null;
+      return {
+        value: observed.toFixed(3),
+        limit: `±${(tol * 100).toFixed(0)}%`,
+        ratio: drift != null ? drift / tol : 0,
+      };
     }
     case "duration": {
-      const observed = num("observed_seconds");
-      const expected = num("expected_seconds");
-      const tol = num("tolerance_seconds");
-      if (observed == null || expected == null) return null;
+      const observed = n("observed_seconds");
+      const delta = n("delta_seconds");
+      const tol = n("tolerance_seconds") ?? 0.5;
+      if (observed == null) return null;
       return {
         value: `${observed.toFixed(2)}s`,
-        limit: `target ${expected}s ±${tol ?? 0.5}`,
+        limit: `±${tol}s`,
+        ratio: delta != null ? delta / tol : 0,
       };
     }
     case "palette_adherence": {
-      const coverage = num("coverage");
-      const required = num("required_coverage");
-      const meanDe = num("mean_delta_e");
+      const coverage = n("coverage");
+      const required = n("required_coverage") ?? 0;
+      const de = n("mean_delta_e");
       if (coverage == null) return null;
       return {
         value: `${Math.round(coverage * 100)}%`,
-        limit:
-          meanDe != null
-            ? `min ${Math.round((required ?? 0) * 100)}% · dE ${meanDe.toFixed(1)}`
-            : `min ${Math.round((required ?? 0) * 100)}%`,
+        limit: de != null ? `ΔE ${de.toFixed(1)}` : `min ${Math.round(required * 100)}%`,
+        ratio: required > 0 ? coverage / required : 1,
       };
     }
     case "banned_lexemes": {
-      const matches = num("matches");
-      const checked = num("terms_checked");
+      const matches = n("matches");
+      const checked = n("terms_checked") ?? 0;
       if (matches == null) return null;
-      return { value: `${matches}`, limit: `of ${checked ?? 0} terms` };
+      return {
+        value: `${matches}`,
+        limit: `of ${checked}`,
+        ratio: matches > 0 ? 1 : 0.04,
+      };
     }
     case "mandatory_disclosure": {
-      const missing = num("missing");
-      const required = num("required");
+      const missing = n("missing");
+      const required = n("required") ?? 0;
       if (missing == null) return null;
-      return { value: `${(required ?? 0) - missing}/${required ?? 0}`, limit: "present" };
+      return {
+        value: `${required - missing}/${required}`,
+        limit: "present",
+        ratio: required > 0 ? (required - missing) / required : 1,
+      };
     }
     default:
       return null;
   }
 }
 
-function FindingRow({ finding }: { finding: Finding }) {
+function Row({ finding, index }: { finding: Finding; index: number }) {
   const measured = finding.kind === "deterministic";
-  const reading = measured ? readout(finding.criterion, finding.measurement) : null;
+  const reading = measured ? readingFor(finding.criterion, finding.measurement) : null;
   const label = LABEL[finding.criterion] ?? finding.criterion.replace(/_/g, " ");
+  const showRationale = finding.rationale && finding.outcome !== "pass";
 
   return (
-    <li
-      className={`finding finding--${finding.outcome} finding--${
-        measured ? "measured" : "reviewed"
-      }`}
+    <motion.li
+      className="finding"
+      data-outcome={finding.outcome}
+      data-kind={finding.kind}
+      initial={{ opacity: 0, y: -3 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        type: "spring",
+        stiffness: 420,
+        damping: 36,
+        delay: Math.min(index * 0.024, 0.24),
+      }}
     >
       <span className="finding__mark" aria-hidden="true">
         {MARK[finding.outcome] ?? "·"}
@@ -96,79 +145,83 @@ function FindingRow({ finding }: { finding: Finding }) {
       <span className="finding__label">
         {label}
         {finding.severity === "advisory" && (
-          <span className="eyebrow" style={{ marginLeft: ".5rem" }}>
-            advisory
-          </span>
+          <span className="finding__advisory">advisory</span>
         )}
       </span>
 
       {reading ? (
-        <span className="readout">
-          <span className="readout__value">{reading.value}</span>
-          <span className="readout__limit">{reading.limit}</span>
+        <span
+          className="readout-cell"
+          title={`${reading.value} against ${reading.limit}`}
+        >
+          <span className="readout-cell__value">{reading.value}</span>
+          <span className="readout-cell__limit">{reading.limit}</span>
+          <Gauge ratio={reading.ratio} />
         </span>
       ) : finding.confidence != null ? (
         <span className="confidence" title={`Model confidence ${finding.confidence}`}>
-          <span className="confidence__track">
-            <span
-              className="confidence__fill"
-              style={{ width: `${Math.round(finding.confidence * 100)}%` }}
-            />
-          </span>
+          <Gauge ratio={finding.confidence} />
           {finding.confidence.toFixed(2)}
         </span>
       ) : (
-        <span className="confidence">—</span>
+        <span className="confidence confidence--none" title="No confidence reported">
+          —
+        </span>
       )}
 
-      {finding.rationale && finding.outcome !== "pass" && (
-        <p className="finding__rationale">{finding.rationale}</p>
-      )}
-    </li>
+      {showRationale && <p className="finding__rationale">{finding.rationale}</p>}
+
+      <span className="sr-only">
+        {measured ? "Measured" : "Reviewed"}: {finding.outcome}
+      </span>
+    </motion.li>
   );
 }
 
 export function Findings({ findings }: { findings: Finding[] }) {
   const measured = findings.filter((f) => f.kind === "deterministic");
-  const reviewed = findings.filter((f) => f.kind === "perceptual");
+  const judged = findings.filter((f) => f.kind === "perceptual");
 
   if (findings.length === 0) {
     return (
-      <p className="eyebrow" style={{ padding: "1rem 0" }}>
-        Awaiting the first finding…
-      </p>
+      <div style={{ padding: "var(--s5) var(--s4)" }} className="stack--tight">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="row" style={{ flexWrap: "nowrap" }}>
+            <span style={{ width: 14 }} />
+            <div style={{ flex: 1 }}>
+              <div className="skeleton" style={{ height: 9, width: `${58 - i * 9}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
     );
   }
 
   return (
     <div>
       {measured.length > 0 && (
-        <section className="findings__group">
-          <div className="findings__legend">
-            <h3 className="eyebrow">Measured</h3>
-            <p className="findings__legend-note">
-              computed from the file · reproducible
-            </p>
+        <section className="ledger__group">
+          <div className="ledger__legend">
+            <h3 className="label">Measured</h3>
+            <p className="ledger__legend-note">computed from the file · reproducible</p>
           </div>
-          <ul className="lineage" style={{ listStyle: "none" }}>
-            {measured.map((f) => (
-              <FindingRow key={f.criterion} finding={f} />
+          <ul>
+            {measured.map((f, i) => (
+              <Row key={f.criterion} finding={f} index={i} />
             ))}
           </ul>
         </section>
       )}
 
-      {reviewed.length > 0 && (
-        <section className="findings__group">
-          <div className="findings__legend">
-            <h3 className="eyebrow">Reviewed</h3>
-            <p className="findings__legend-note">
-              model judgement · uncertainty escalates
-            </p>
+      {judged.length > 0 && (
+        <section className="ledger__group">
+          <div className="ledger__legend">
+            <h3 className="label">Reviewed</h3>
+            <p className="ledger__legend-note">model judgement · uncertainty escalates</p>
           </div>
-          <ul className="lineage" style={{ listStyle: "none" }}>
-            {reviewed.map((f) => (
-              <FindingRow key={f.criterion} finding={f} />
+          <ul>
+            {judged.map((f, i) => (
+              <Row key={f.criterion} finding={f} index={measured.length + i} />
             ))}
           </ul>
         </section>
@@ -184,7 +237,7 @@ export function Disposition({
   decision: string;
   detail: string;
 }) {
-  const verdictWord =
+  const word =
     decision === "verified"
       ? "Verified"
       : decision === "rejected"
@@ -192,10 +245,20 @@ export function Disposition({
         : "Escalated";
 
   return (
-    <div className={`disposition disposition--${decision}`} role="status">
-      <span className="eyebrow">Disposition</span>
-      <span className="disposition__verdict">{verdictWord}</span>
+    <motion.div
+      className="disposition"
+      data-decision={decision}
+      role="status"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2 }}
+    >
+      <span className="label">Disposition</span>
+      <span className="disposition__verdict">
+        <span className="dot" style={{ background: "currentColor" }} />
+        {word}
+      </span>
       <p className="disposition__detail">{detail}</p>
-    </div>
+    </motion.div>
   );
 }
