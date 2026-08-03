@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useReviewStream } from "./api";
+import { BriefForm } from "./components/BriefForm";
 import { CertificateView } from "./components/Certificate";
 import { Evidence } from "./components/Evidence";
 import { Disposition, Findings } from "./components/Findings";
@@ -226,7 +227,14 @@ function Console() {
                 </div>
               </div>
 
-              <div className="stack">
+              <div className="split">
+                <BriefForm
+                  liveEnabled={health?.runtime.mode === "live"}
+                  onStarted={(id) => {
+                    setCertificate(null);
+                    setSessionId(id);
+                  }}
+                />
                 <Recordings recordings={recordings} onPlay={startReplay} />
               </div>
             </>
