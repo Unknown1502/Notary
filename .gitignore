@@ -37,13 +37,14 @@ notary.md
 # Written by scripts/seed_vault.py for offline verification.
 /certificate.json
 
-# Screen recordings and other stray media dropped in the project root.
-# samples/ is deliberately tracked -- it is small and lets the repo
-# re-seed its own vault -- so the rule is anchored to the root only.
-/*.mp4
-/*.mov
-/*.webm
-/*.mkv
+# No video in the repository, anywhere. A browser capture was committed once
+# by a broad `git add -A`, and 30 MB of it sat in history where every clone
+# paid for it. Generated and sample media belong outside version control --
+# scripts/seed_vault.py takes any local file as an argument.
+*.mp4
+*.mov
+*.webm
+*.mkv
 
 # Agent tooling state, not project source. .claude/ contains embedded git
 # worktrees, which would otherwise be staged as a nested repository.
