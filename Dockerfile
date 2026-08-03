@@ -50,7 +50,8 @@ USER notary
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     NOTARY_MODE=replay \
-    NOTARY_SEED_DIR=/app/seed \n    NOTARY_EVALUATION_REPORT=/app/docs/evaluation-report.json \
+    NOTARY_SEED_DIR=/app/seed \
+    NOTARY_EVALUATION_REPORT=/app/docs/evaluation-report.json \
     NOTARY_SIGNING_KEY_PATH=/app/keys/notary-ed25519.pem \
     PORT=8000
 
