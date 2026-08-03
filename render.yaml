@@ -32,11 +32,16 @@ services:
 
       # Baked into certificates as the durable asset URL when the vault is
       # private, so it must be the real public origin, not localhost.
+      # Set this by hand after the first deploy, as the FULL origin including
+      # the scheme: https://notary-xxxx.onrender.com
+      #
+      # Render's `fromService: property: host` yields a bare hostname with no
+      # scheme, which would produce malformed certificate URLs. Blueprints
+      # cannot concatenate, so this is manual on purpose. It only matters in
+      # live mode -- but a wrong value there is baked into a certificate that
+      # Object Lock then makes permanently uncorrectable.
       - key: NOTARY_PUBLIC_BASE_URL
-        fromService:
-          type: web
-          name: notary
-          property: host
+        sync: false
 
       # Same-origin in production (FastAPI serves the built frontend), so this
       # only matters if you split the frontend onto its own domain.
