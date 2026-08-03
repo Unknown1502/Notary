@@ -60,6 +60,47 @@ from notary.models import (
 SEQUENCE = 0
 START = time.time()
 
+CERTIFICATE_ID = "cert_demo01cardiovar"
+"""Replaced at generation time by a real vault certificate when B2 is reachable."""
+
+
+def real_certificate_id(fallback: str) -> str:
+    """Link the recording's final beat to a certificate that actually exists.
+
+    The recordings used to end by announcing an invented id, so the demo's last
+    action -- open the certificate you just watched being sealed -- produced a
+    404. The arc broke exactly where it should have paid off.
+
+    When B2 is reachable, the newest real certificate in the vault is used
+    instead, so the replay hands off to a genuine signed record with a working
+    Verify button. Without credentials the placeholder stands and the button
+    reports plainly that no such certificate exists, which is at least honest.
+    """
+    try:
+        from notary.storage import get_storage
+
+        settings = get_settings()
+        storage = get_storage()
+        if not storage.available:
+            return fallback
+
+        newest: tuple[str, str] | None = None
+        for obj in storage.list_prefix(settings.b2_bucket_vault, "vault/", max_keys=500):
+            if not obj.key.endswith("certificate.json"):
+                continue
+            doc = storage.get_json(settings.b2_bucket_vault, obj.key)
+            stamp = str(doc.get("certified_at", ""))
+            if newest is None or stamp > newest[0]:
+                newest = (stamp, str(doc["certificate_id"]))
+
+        if newest:
+            print(f"  linking replay to real certificate {newest[1]}")
+            return newest[1]
+    except Exception as exc:  # noqa: BLE001 - the placeholder is a valid outcome
+        print(f"  could not reach the vault ({type(exc).__name__}); using placeholder")
+
+    return fallback
+
 
 def event(events: list[dict], type_: str, session: str, offset: float, **data):
     global SEQUENCE
@@ -312,7 +353,7 @@ def build_run_01(workdir: Path, seed_dir: Path) -> None:
           asset_id="take_demo01final", retention_days=7)
     event(
         events, "certification.sealed", session, 96.2,
-        certificate_id="cert_demo01cardiovar",
+        certificate_id=CERTIFICATE_ID,
         sha256="9f2c" + "0" * 56,
         manifest_hash="4a71" + "0" * 60,
         trust_mode=2, signature_key_id="notary-dev-2026",
@@ -320,7 +361,7 @@ def build_run_01(workdir: Path, seed_dir: Path) -> None:
         vault_prefix="vault/acme-pharma/cmp-cardiovar-q3/take_demo01final",
     )
     event(events, "session.completed", session, 96.8, outcome="certified",
-          certificate_id="cert_demo01cardiovar",
+          certificate_id=CERTIFICATE_ID,
           summary="Certified and sealed under Object Lock.")
 
     write_recording(seed_dir, session, events, brief.title)
@@ -546,6 +587,9 @@ def write_recording(seed_dir: Path, session: str, events: list[dict], title: str
 
 
 def main() -> int:
+    global CERTIFICATE_ID
+    CERTIFICATE_ID = real_certificate_id(CERTIFICATE_ID)
+
     settings = get_settings()
     seed_dir = settings.seed_dir
     seed_dir.mkdir(parents=True, exist_ok=True)

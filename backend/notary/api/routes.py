@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sse_starlette.sse import EventSourceResponse
 
 from ..board.rubric import describe_profiles
-from ..config import REPO_ROOT, RunMode, describe_runtime, get_settings
+from ..config import RunMode, describe_runtime, get_settings
 from ..events import get_bus, list_recordings, load_recording, replay_into_bus
 from ..genblaze_compat import runtime_report
 from ..media import tooling_available
@@ -88,7 +88,7 @@ async def evaluation() -> dict[str, Any]:
     plainly instead of being silently hidden -- an evaluation page that
     disappears when it has nothing good to say is worse than no page.
     """
-    report_path = REPO_ROOT / "docs" / "evaluation-report.json"
+    report_path = get_settings().evaluation_report
     if not report_path.exists():
         return {
             "available": False,

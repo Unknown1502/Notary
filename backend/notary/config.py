@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     """Default to REPLAY so a fresh clone runs with zero credentials."""
 
     seed_dir: Path = REPO_ROOT / "seed"
+
+    evaluation_report: Path = REPO_ROOT / "docs" / "evaluation-report.json"
+    """Where the Evidence screen reads its numbers from.
+
+    Overridable for the same reason `seed_dir` is: REPO_ROOT is derived from
+    this file's location, which is only the repository root in a source
+    checkout. In the Docker image the package is pip-installed into
+    site-packages, so REPO_ROOT resolves inside the interpreter's library
+    directory and the report -- copied to /app/docs -- is invisible. The
+    Evidence tab then reports "no evaluation report" on a deployment that
+    shipped one."""
     public_base_url: str = "http://localhost:8000"
 
     # ----------------------------------------------------------- backblaze b2

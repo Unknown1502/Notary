@@ -573,6 +573,16 @@
 .readout-cell__value {
   color: var(--text);
   font-variant-numeric: tabular-nums;
+  /* Right-aligned in a fixed column so observed values stack cleanly down the
+     ledger. Without this, "1.778", "5.98s" and "100%" each start wherever
+     their limit text allows, and the readouts stop scanning as an instrument
+     -- which is the whole point of setting them in mono. */
+  min-width: 4.5em;
+  text-align: right;
+}
+
+.readout-cell__limit {
+  min-width: 5.5em;
 }
 
 .finding[data-outcome="fail"] .readout-cell__value {
@@ -581,6 +591,7 @@
 
 .readout-cell__limit {
   color: var(--text-4);
+  min-width: 5.5em;
 }
 
 .gauge {
