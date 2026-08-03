@@ -2,3 +2,6 @@
 {"type": "board.convened", "session_id": "live-001", "data": {"stage": "prompt"}, "sequence": 2, "timestamp": 1785767046.091858}
 {"type": "take.started", "session_id": "live-001", "data": {"take_number": 1, "image_model": "", "video_model": "Kling-Text2Video-V2.1-Master", "fallback_model": "seedance-2-0-260128"}, "sequence": 3, "timestamp": 1785767046.1093893}
 {"type": "session.failed", "session_id": "live-001", "data": {"error": "genblaze AgentLoop is unavailable", "error_type": "RuntimeError"}, "sequence": 4, "timestamp": 1785767046.136494}
+{"type": "session.started", "session_id": "live-001", "data": {"campaign_id": "cmp_9c7f54942008", "title": "Cardiovar - coastal sunrise", "tenant": "acme-pharma", "compliance_profile": "pharma-dtc-us", "max_iterations": 1, "mode": "live"}, "sequence": 1, "timestamp": 1785767364.8799484}
+{"type": "board.convened", "session_id": "live-001", "data": {"stage": "prompt"}, "sequence": 2, "timestamp": 1785767364.880951}
+{"type": "take.started", "session_id": "live-001", "data": {"take_number": 1, "image_model": "", "video_model": "Kling-Text2Video-V2.1-Master", "fallback_model": "seedance-2-0-260128"}, "sequence": 3, "timestamp": 1785767366.3774624}
