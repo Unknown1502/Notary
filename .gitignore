@@ -46,6 +46,11 @@ notary.md
 *.webm
 *.mkv
 
+# Local narrated walkthrough, for screen-recording the submission video.
+# Not part of the product and not something a judge should find in the repo.
+demo.html
+kling-render.mp4
+
 # Agent tooling state, not project source. .claude/ contains embedded git
 # worktrees, which would otherwise be staged as a nested repository.
 .superpowers/
