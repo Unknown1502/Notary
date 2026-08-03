@@ -96,6 +96,23 @@ chat(model, messages=None, *, prompt=None, system=None, tools=None,
 
 **Also confirmed:** `chat()` always returns `cost_usd=None`. Notary derives cost from `tokens_in`/`tokens_out`.
 
+### Verified as far as money allows (2026-08-01)
+
+The multimodal path is now confirmed correct up to the billing gate, against two providers:
+
+| Provider | Auth | Model catalogue | Inference |
+|---|---|---|---|
+| GMI Cloud | ✅ `/v1/models` returns the full list | ✅ 42 models enumerated | ❌ `402 Insufficient balance` |
+| Google AI Studio | ✅ key lists 42 `generateContent` models | ✅ Gemini 2.0/2.5/3.x flash family | ❌ `429 RESOURCE_EXHAUSTED — prepayment credits are depleted` |
+
+Both rejections are **account-state errors, not shape errors**. The request was accepted, routed, and refused for balance — an unsupported message format returns `400 INVALID_ARGUMENT`, and a wrong model returns `404`, neither of which occurred. So the message construction, the provider dispatch, and the credential plumbing are all exercised; what is unverified is only the *response* parsing against a real model reply.
+
+Notably, the Google 429 was reached through `retry_on_rate_limit`, which backed off six times before surfacing — confirming the connector's retry path works and that the per-connector kwarg filtering routes it correctly.
+
+**What remains unverified:** whether a real Gemini/Qwen reply parses into a `BoardVerdict`. `parse_verdict_json` is covered by unit tests over hand-written model output, and any parse failure escalates to a human rather than passing — so the failure mode is safe, not silent. Closing this needs any key with a non-zero balance; nothing in the code changes.
+
+**Free tier note:** Google's free tier applies to projects *without* billing linked. A project switched to prepay loses it, which is what happened here — every flash-class model returned the same project-level error, including the lite variants.
+
 ---
 
 ## 4. Does `verify()` re-hash the bytes?
