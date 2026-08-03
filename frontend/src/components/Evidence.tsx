@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
 import { api } from "../api";
 import type { EvaluationReport } from "../types";
-import { Empty, Notice, Panel, Skeleton, Stat } from "./ui";
+import { Empty, Notice, Panel, Skeleton } from "./ui";
 
 const pct = (v: number | null) =>
   v === null || v === undefined ? "—" : `${(v * 100).toFixed(1)}%`;
@@ -57,12 +56,7 @@ export function Evidence() {
   return (
     <div className="stack">
       {/* The strongest claim leads, stated once, at size. */}
-      <motion.div
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 320, damping: 32 }}
-      >
-        <Panel>
+      <Panel>
           <p className="label">Exhaustive safety proof</p>
           <p
             style={{
@@ -87,20 +81,7 @@ export function Evidence() {
             certifies an asset that a blocking criterion failed or could not
             resolve.
           </p>
-        </Panel>
-      </motion.div>
-
-      <div className="stats">
-        <Stat label="Corpus" value={report.corpus.total} />
-        <Stat label="Near threshold" value={report.corpus.near_boundary} />
-        <Stat
-          label="Safety"
-          value={<span style={{ color: holds ? "var(--pass)" : "var(--fail)" }}>
-            {holds ? "holds" : "violated"}
-          </span>}
-        />
-        <Stat label="Unscored criteria" value={report.not_evaluated.perceptual_criteria.length} />
-      </div>
+      </Panel>
 
       <Panel title="Measured checks — scored accuracy" flush>
         <p

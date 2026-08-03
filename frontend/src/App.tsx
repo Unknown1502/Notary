@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { api, useReviewStream } from "./api";
 import { CertificateView } from "./components/Certificate";
 import { Evidence } from "./components/Evidence";
@@ -186,7 +185,6 @@ function Console() {
     try {
       const result = await api.replay(id);
       setSessionId(result.session_id);
-      toast("Replaying a recorded review.", "accent");
     } catch (exc) {
       toast(exc instanceof Error ? exc.message : "Could not start replay.", "error");
     }
@@ -212,14 +210,7 @@ function Console() {
       onToggleTheme={toggle}
       crumb={<span>{crumb}</span>}
     >
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={`${tab}-${sessionId ?? ""}-${certificate?.certificate_id ?? ""}`}
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-        >
+      <div>
           {/* ------------------------------------------------------ review */}
           {tab === "review" && !sessionId && (
             <>
@@ -233,28 +224,9 @@ function Console() {
                     human rather than out the door.
                   </p>
                 </div>
-                {health && (
-                  <div className="row">
-                    <Pill>
-                      <span
-                        className={`dot${health.runtime.mode === "live" ? " dot--live" : ""}`}
-                      />
-                      {health.runtime.mode}
-                    </Pill>
-                    <Pill accent>trust mode {health.runtime.trust_mode}</Pill>
-                  </div>
-                )}
               </div>
 
               <div className="stack">
-                {health?.runtime.mode !== "live" && (
-                  <Notice>
-                    This deployment replays captured event streams from real
-                    runs. Deterministic findings in them are genuine
-                    measurements of genuine pixels — only the generation is
-                    replayed, and every event is flagged as such.
-                  </Notice>
-                )}
                 <Recordings recordings={recordings} onPlay={startReplay} />
               </div>
             </>
@@ -400,8 +372,7 @@ function Console() {
               <Evidence />
             </>
           )}
-        </motion.div>
-      </AnimatePresence>
+      </div>
     </Shell>
   );
 }

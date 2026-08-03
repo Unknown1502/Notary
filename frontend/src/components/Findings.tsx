@@ -129,14 +129,9 @@ function Row({ finding, index }: { finding: Finding; index: number }) {
       className="finding"
       data-outcome={finding.outcome}
       data-kind={finding.kind}
-      initial={{ opacity: 0, y: -3 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{
-        type: "spring",
-        stiffness: 420,
-        damping: 36,
-        delay: Math.min(index * 0.024, 0.24),
-      }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.18, delay: Math.min(index * 0.018, 0.16) }}
     >
       <span className="finding__mark" aria-hidden="true">
         {MARK[finding.outcome] ?? "·"}
@@ -245,20 +240,13 @@ export function Disposition({
         : "Escalated";
 
   return (
-    <motion.div
-      className="disposition"
-      data-decision={decision}
-      role="status"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.2 }}
-    >
+    <div className="disposition" data-decision={decision} role="status">
       <span className="label">Disposition</span>
       <span className="disposition__verdict">
         <span className="dot" style={{ background: "currentColor" }} />
         {word}
       </span>
       <p className="disposition__detail">{detail}</p>
-    </motion.div>
+    </div>
   );
 }

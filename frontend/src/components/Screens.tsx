@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
 import { api } from "../api";
 import type { LibraryAsset, LineageNode, QueueItem, Recording } from "../types";
 import { Findings } from "./Findings";
@@ -24,7 +23,7 @@ export function Lineage({ nodes }: { nodes: LineageNode[] }) {
 
   return (
     <ol className="lineage">
-      {nodes.map((node, i) => {
+      {nodes.map((node) => {
         const state =
           node.decision === "verified"
             ? "verified"
@@ -44,14 +43,7 @@ export function Lineage({ nodes }: { nodes: LineageNode[] }) {
                 : "Generating";
 
         return (
-          <motion.li
-            key={node.run_id}
-            className="lineage__row"
-            data-state={state}
-            initial={{ opacity: 0, x: -4 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ type: "spring", stiffness: 400, damping: 34, delay: i * 0.04 }}
-          >
+          <li key={node.run_id} className="lineage__row" data-state={state}>
             <span className="lineage__idx">{node.take_number}</span>
             <div>
               <p className="lineage__title">
@@ -62,7 +54,7 @@ export function Lineage({ nodes }: { nodes: LineageNode[] }) {
               </p>
               <p className="lineage__meta">{node.run_id}</p>
             </div>
-          </motion.li>
+          </li>
         );
       })}
     </ol>
@@ -156,14 +148,11 @@ export function Library({
 
   return (
     <div className="grid">
-      {assets.map((asset, i) => (
-        <motion.button
+      {assets.map((asset) => (
+        <button
           key={asset.certificate_id}
           className="card"
           onClick={() => onOpen(asset.certificate_id)}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 380, damping: 32, delay: i * 0.03 }}
         >
           <div className="card__media">
             {asset.thumbnail_url ? (
@@ -189,7 +178,7 @@ export function Library({
               {asset.trust_mode === 2 ? "signed" : "unsigned"}
             </p>
           </div>
-        </motion.button>
+        </button>
       ))}
     </div>
   );

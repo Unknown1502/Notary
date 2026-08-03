@@ -422,23 +422,11 @@
 
 .dot--live {
   background: var(--pass);
-  box-shadow: 0 0 0 3px var(--pass-dim);
-  animation: breathe 2.4s var(--ease) infinite;
 }
 
 .dot--accent {
   background: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
-}
-
-@keyframes breathe {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
 }
 
 /* --------------------------------------------------------------------------
@@ -515,15 +503,10 @@
   gap: var(--s3);
   padding: 9px var(--s4);
   border-top: 1px solid var(--hairline);
-  transition: background var(--d-fast) var(--ease);
 }
 
 .ledger__group .finding:first-of-type {
   border-top: none;
-}
-
-.finding:hover {
-  background: var(--elevated);
 }
 
 .finding__mark {
@@ -652,7 +635,6 @@
   flex-wrap: wrap;
   padding: var(--s3) var(--s4);
   border-top: 1px solid var(--hairline);
-  background: var(--elevated);
 }
 
 .disposition__verdict {
@@ -788,29 +770,9 @@
    -------------------------------------------------------------------------- */
 
 .seal {
-  position: relative;
   border: 1px solid var(--accent-line);
   border-radius: var(--r-lg);
-  background: linear-gradient(
-    180deg,
-    var(--accent-dim) 0%,
-    transparent 60%
-  );
   padding: var(--s4);
-  overflow: hidden;
-}
-
-.seal::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--accent) 50%,
-    transparent
-  );
 }
 
 .seal__label {
@@ -893,13 +855,7 @@
   border-bottom: 1px solid var(--hairline);
 }
 
-.table tbody tr {
-  transition: background var(--d-fast) var(--ease);
-}
 
-.table tbody tr:hover {
-  background: var(--elevated);
-}
 
 .table__num {
   text-align: right;
@@ -925,13 +881,11 @@
   background: var(--surface);
   overflow: hidden;
   text-align: left;
-  transition: border-color var(--d) var(--ease),
-    transform var(--d) var(--ease-out);
+  transition: border-color var(--d) var(--ease);
 }
 
 .card:hover {
   border-color: var(--border-strong);
-  transform: translateY(-2px);
 }
 
 .card__media {
