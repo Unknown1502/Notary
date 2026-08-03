@@ -155,10 +155,10 @@ export function Library({
           onClick={() => onOpen(asset.certificate_id)}
         >
           <div className="card__media">
-            {asset.thumbnail_url ? (
-              <img src={asset.thumbnail_url} alt="" loading="lazy" />
+            {asset.poster_url ? (
+              <img src={asset.poster_url} alt="" loading="lazy" />
             ) : (
-              <video src={asset.asset_url} muted playsInline preload="metadata" />
+              <video src={asset.playback_url} muted playsInline preload="metadata" />
             )}
           </div>
           <div className="card__body">

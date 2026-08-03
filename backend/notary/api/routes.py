@@ -44,6 +44,52 @@ router = APIRouter(prefix="/api")
 
 
 # --------------------------------------------------------------------------
+# Serving media the certificate points at
+#
+# A certificate's `asset_url` and `thumbnail_url` are sealed under Object Lock,
+# so they record where a copy lived at the moment of certification and can
+# never be amended. Neither is safe to hand a browser:
+#
+#   * `asset_url` is whatever NOTARY_PUBLIC_BASE_URL was on the machine that
+#     issued the certificate. On a deployment that only *reads* certificates,
+#     replaying it points the viewer's <video> at the issuer's origin -- which
+#     for a locally-issued certificate means the viewer's own localhost.
+#   * `thumbnail_url` is a bare S3 URL into a private bucket, so an
+#     unauthenticated GET is a 403.
+#
+# So the API returns app-relative paths for playback, resolved against
+# whichever origin is serving, and lets these endpoints mint a fresh presigned
+# URL per request. The sealed values stay in the certificate document,
+# unaltered and still shown as the record.
+# --------------------------------------------------------------------------
+
+
+def _media_urls(certificate_id: str, thumbnail_url: str | None) -> dict[str, str | None]:
+    return {
+        "playback_url": f"/api/certificates/{certificate_id}/asset",
+        "poster_url": (
+            f"/api/certificates/{certificate_id}/thumbnail" if thumbnail_url else None
+        ),
+    }
+
+
+def _own_bucket_key(url: str) -> tuple[str, str] | None:
+    """Map one of our own B2 URLs back to (bucket, key), else None."""
+    from urllib.parse import unquote, urlparse
+
+    settings = get_settings()
+    parsed = urlparse(url)
+    if not parsed.scheme.startswith("http"):
+        return None
+    if parsed.netloc != urlparse(settings.b2_endpoint).netloc:
+        return None
+
+    bucket, _, key = unquote(parsed.path).lstrip("/").partition("/")
+    known = {settings.b2_bucket_vault, settings.b2_bucket_workbench}
+    return (bucket, key) if bucket in known and key else None
+
+
+# --------------------------------------------------------------------------
 # System
 # --------------------------------------------------------------------------
 
@@ -363,6 +409,7 @@ async def library(
                 "tenant": c.tenant,
                 "asset_url": c.asset_url,
                 "thumbnail_url": c.thumbnail_url,
+                **_media_urls(c.certificate_id, c.thumbnail_url),
                 "model": c.model,
                 "provider": c.provider,
                 "certified_at": c.certified_at.isoformat(),
@@ -385,6 +432,7 @@ async def certificate(certificate_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"no certificate {certificate_id}")
     return {
         "certificate": cert.model_dump(mode="json"),
+        **_media_urls(cert.certificate_id, cert.thumbnail_url),
         "trust_mode": cert.trust_mode,
         "trust_mode_label": (
             "Mode 2 — authenticated integrity (Ed25519)"
@@ -439,6 +487,38 @@ async def certificate_asset(certificate_id: str) -> RedirectResponse:
         )
     # 307 preserves the method and tells caches this is not permanent -- the
     # target changes on every request by design.
+    return RedirectResponse(url=url, status_code=307)
+
+
+@router.get("/certificates/{certificate_id}/thumbnail")
+async def certificate_thumbnail(certificate_id: str) -> RedirectResponse:
+    """Poster frame for a certified asset, mediated the same way as the asset.
+
+    The certificate stores `thumbnail_url` as a bare S3 URL, which was
+    reachable only because the process that wrote it held credentials. The
+    vault is private, so handing that URL to a browser is a 403. This resolves
+    the key back out of the sealed URL and mints a presigned one per request.
+    """
+    cert = get_store().get_certificate(certificate_id)
+    if cert is None:
+        raise HTTPException(status_code=404, detail=f"no certificate {certificate_id}")
+    if not cert.thumbnail_url:
+        raise HTTPException(status_code=404, detail="no thumbnail for this certificate")
+
+    storage = get_storage()
+    if not storage.available:
+        raise HTTPException(
+            status_code=503, detail="B2 is not configured; the thumbnail cannot be served."
+        )
+
+    own = _own_bucket_key(cert.thumbnail_url)
+    if own is None:
+        # Already a URL a browser can fetch (public vault base, or a host we
+        # do not own). Pass it through rather than guessing at a key.
+        return RedirectResponse(url=cert.thumbnail_url, status_code=307)
+
+    bucket, key = own
+    url = await asyncio.to_thread(storage.serve_url, bucket, key, expires_in=3600)
     return RedirectResponse(url=url, status_code=307)
 
 

@@ -85,7 +85,13 @@ export function CertificateView({
       <div className="split">
         <div className="stack">
           <div className="media">
-            <video src={certificate.asset_url} controls playsInline preload="metadata" />
+            <video
+              src={api.assetUrl(certificate.certificate_id)}
+              poster={certificate.thumbnail_url ? api.posterUrl(certificate.certificate_id) : undefined}
+              controls
+              playsInline
+              preload="metadata"
+            />
           </div>
 
           <Panel title="Lineage" flush>

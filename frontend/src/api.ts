@@ -51,6 +51,16 @@ export const api = {
       passed: boolean;
       summary: string;
     }>(`/api/certificates/${id}/verify`, { method: "POST" }),
+  /**
+   * Media lives behind the app, never at the URL inside the certificate.
+   * Those URLs are sealed under Object Lock: `asset_url` is whatever origin
+   * issued the certificate (for a locally-issued one, the *viewer's* own
+   * localhost) and `thumbnail_url` is a bare URL into a private bucket. Both
+   * are the historical record, not something a browser can fetch. These
+   * endpoints mint a fresh presigned URL per request instead.
+   */
+  assetUrl: (id: string) => `/api/certificates/${id}/asset`,
+  posterUrl: (id: string) => `/api/certificates/${id}/thumbnail`,
   submit: (body: unknown) =>
     request<{ session_id: string; stream_url: string }>("/api/reviews", {
       method: "POST",

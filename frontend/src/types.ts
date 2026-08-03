@@ -56,6 +56,14 @@ export interface LibraryAsset {
   tenant: string;
   asset_url: string;
   thumbnail_url: string | null;
+  /**
+   * App-mediated media URLs. `asset_url` and `thumbnail_url` are sealed into
+   * the certificate and cannot be amended, so they record where a copy lived
+   * at certification -- not somewhere this browser can fetch. Always render
+   * from these instead.
+   */
+  playback_url: string;
+  poster_url: string | null;
   model: string;
   provider: string;
   certified_at: string;
