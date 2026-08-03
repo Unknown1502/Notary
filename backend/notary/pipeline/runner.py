@@ -758,6 +758,31 @@ class ReviewRunner:
 
     # --------------------------------------------------------------- helpers
 
+    def _own_bucket_key(self, url: str) -> tuple[str, str] | None:
+        """Recognise a URL that points at one of our own B2 buckets.
+
+        Genblaze's sink persists generated assets to the workbench bucket and
+        reports an S3 URL. Both our buckets are private, so that URL is not
+        fetchable without signing -- it is an identifier, not a download link.
+        Returns (bucket, key) when we can read it directly, else None.
+        """
+        from urllib.parse import unquote, urlparse
+
+        parsed = urlparse(url)
+        if not parsed.scheme.startswith("http"):
+            return None
+
+        endpoint_host = urlparse(self.settings.b2_endpoint).netloc
+        if parsed.netloc != endpoint_host:
+            return None
+
+        path = unquote(parsed.path).lstrip("/")
+        bucket, _, key = path.partition("/")
+        known = {self.settings.b2_bucket_workbench, self.settings.b2_bucket_vault}
+        if bucket in known and key:
+            return bucket, key
+        return None
+
     def _materialize_asset(self, outcome: Any, workdir: Path) -> Path | None:
         """Fetch the generated video to local disk for probing and hashing."""
         url = None
@@ -777,7 +802,16 @@ class ReviewRunner:
 
         target = workdir / "asset.mp4"
         try:
-            if str(url).startswith("http"):
+            own_key = self._own_bucket_key(str(url))
+            if own_key is not None:
+                # The sink wrote this into our own workbench bucket, which is
+                # private. An unauthenticated GET returns 401 -- and the run
+                # then escalates for "no frames available", blaming the asset
+                # rather than the fetch. Read it with the credentials we
+                # already hold.
+                bucket, key = own_key
+                target.write_bytes(self.storage.get_bytes(bucket, key))
+            elif str(url).startswith("http"):
                 import httpx
 
                 with httpx.stream("GET", str(url), timeout=120.0, follow_redirects=True) as r:

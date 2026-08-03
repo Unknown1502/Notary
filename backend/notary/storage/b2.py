@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import io
 import json
 import logging
 from collections.abc import Iterator
@@ -418,9 +417,48 @@ class B2Storage:
     # -------------------------------------------------------------- read ops
 
     def get_bytes(self, bucket: str, key: str) -> bytes:
-        buf = io.BytesIO()
-        self.client.download_fileobj(bucket, key, buf)
-        return buf.getvalue()
+        """Read an object in a single request.
+
+        `download_fileobj` is the obvious choice and the wrong one here. It
+        issues a HeadObject before the GET, which doubles the Class-B
+        transaction count against an allowance that is itself capped -- and
+        when the cap is what refused the call, the HEAD fails first with an
+        empty body, so the explanation B2 puts in the GET response never
+        arrives. One call is both cheaper and more diagnosable.
+        """
+        try:
+            response = self.client.get_object(Bucket=bucket, Key=key)
+            return response["Body"].read()
+        except ClientError as exc:
+            raise self._explain_read_failure(exc, bucket, key) from exc
+
+    @staticmethod
+    def _explain_read_failure(exc: Exception, bucket: str, key: str) -> Exception:
+        """Turn B2's cap refusal into an error that names its own cause.
+
+        A download that exceeds the account's daily bandwidth or Class-B
+        transaction allowance comes back as 403 AccessDenied -- identical in
+        shape to a scoped key or a wrong bucket, and every instinct sends you
+        to check credentials that are fine. The distinguishing detail is only
+        in the message body.
+
+        This matters more than it sounds: reads are what the library, the
+        certificate view and Verify all depend on, so a capped account looks
+        exactly like a broken deployment.
+        """
+        error = getattr(exc, "response", {}).get("Error", {})
+        message = str(error.get("Message", ""))
+
+        if "cap exceeded" in message.lower():
+            return StorageUnavailable(
+                f"Backblaze refused to read s3://{bucket}/{key}: {message} "
+                "This is an account cap, not a permissions problem -- the "
+                "credentials are fine. Raise the download bandwidth and "
+                "Class-B transaction caps on the Caps & Alerts page, or wait "
+                "for the daily reset. Until then the library, certificates and "
+                "Verify will all fail to read."
+            )
+        return exc
 
     def get_json(self, bucket: str, key: str) -> Any:
         return json.loads(self.get_bytes(bucket, key).decode("utf-8"))

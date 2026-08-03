@@ -55,8 +55,16 @@ function reduceStream(events: StreamEvent[]) {
         const n = Number(event.take_number ?? takeNumber + 1);
         if (n > takeNumber) {
           takeNumber = n;
+          // A revision re-reviews everything, so every artefact of the
+          // previous take has to go -- not just its findings. Leaving the
+          // media behind was worse than leaving stale text: the corrected
+          // take rendered beside the rejected take's frame, so the one thing
+          // the screen exists to show, that the fix worked, was a lie.
           findings.clear();
           decision = null;
+          detail = "";
+          assetUrl = null;
+          frameUrl = null;
         }
         break;
       }
