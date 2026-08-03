@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,12 +42,17 @@ log = logging.getLogger(__name__)
 class Store:
     """Thread-safe in-memory index with B2 rehydration."""
 
+    _REHYDRATE_COOLDOWN_S = 30.0
+    """Floor between retry listings, so an empty vault does not turn every
+    library request into a bucket listing."""
+
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._sessions: dict[str, ReviewSession] = {}
         self._certificates: dict[str, Certificate] = {}
         self._queue: dict[str, str] = {}  # session_id -> reason
         self._rehydrated = False
+        self._last_rehydrate_attempt = 0.0
 
     # ------------------------------------------------------------- sessions
 
@@ -156,9 +162,37 @@ class Store:
             return cert
         return self._load_certificate_from_b2(certificate_id)
 
+    def _retry_rehydrate_if_empty(self) -> None:
+        """Re-attempt rehydration when the index is empty but B2 is readable.
+
+        Startup rehydration can complete having loaded nothing -- a transient
+        outage, or a Backblaze daily cap, refuses every read while the bucket
+        listing still succeeds. `_rehydrated` is set either way, so without
+        this the library stays permanently empty until someone restarts the
+        process, and the failure looks like "there are no certificates"
+        rather than "we could not read them".
+
+        Only fires when the index is empty, so a genuinely empty vault costs
+        one listing per cooldown and nothing else.
+        """
+        if not get_settings().reads_real_storage:
+            return
+        now = time.monotonic()
+        if now - self._last_rehydrate_attempt < self._REHYDRATE_COOLDOWN_S:
+            return
+        self._last_rehydrate_attempt = now
+        try:
+            self.rehydrate_from_b2()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("rehydration retry failed: %s", exc)
+
     def list_certificates(
         self, *, tenant: str | None = None, campaign_id: str | None = None
     ) -> list[Certificate]:
+        with self._lock:
+            empty = not self._certificates
+        if empty:
+            self._retry_rehydrate_if_empty()
         with self._lock:
             items = list(self._certificates.values())
         if tenant:
