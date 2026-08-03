@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from notary.board import BrandGuardrailHook, decide
 from notary.board.rubric import PROFILE_LABELS, get_profile
 from notary.config import get_settings
-from notary.media import extract_frames, probe, tooling_available
+from notary.media import extract_frames, make_thumbnail, probe, tooling_available
 from notary.models import (
     BoardDecision,
     BrandKit,
@@ -73,6 +73,7 @@ from notary.storage import (
     vault_asset_key,
     vault_certificate_key,
     vault_manifest_key,
+    vault_thumbnail_key,
     vault_verdict_key,
 )
 from notary.store import get_store
@@ -310,6 +311,22 @@ def main() -> int:
         print(f"    {stored.size:,} bytes, version {(stored.version_id or '')[:28]}...")
         print(f"    COMPLIANCE until {stored.retention_until:%Y-%m-%d %H:%M UTC}")
 
+        # A poster frame under the same retention. The vault layout documents
+        # thumbnail.jpg, and without one the library downloads a whole video per
+        # card just to show a single still.
+        thumbnail_url = None
+        poster = make_thumbnail(args.video, workdir / "thumb.jpg")
+        if poster is not None:
+            thumbnail_url = storage.put(
+                settings.b2_bucket_vault,
+                vault_thumbnail_key(brief.tenant, brief.campaign_id, asset_id),
+                poster.read_bytes(),
+                content_type="image/jpeg",
+                retention_days=retention,
+                cache_control="public, max-age=31536000, immutable",
+            ).url
+            print(f"    sealed thumbnail.jpg ({poster.stat().st_size:,} bytes)")
+
         for key, payload in (
             (vault_manifest_key(brief.tenant, brief.campaign_id, asset_id), manifest_payload),
             (
@@ -328,7 +345,7 @@ def main() -> int:
             asset_key=asset_key, asset_url=stored.url,
             manifest_key=vault_manifest_key(brief.tenant, brief.campaign_id, asset_id),
             verdict_key=vault_verdict_key(brief.tenant, brief.campaign_id, asset_id),
-            manifest_hash=manifest_hash, thumbnail_url=None,
+            manifest_hash=manifest_hash, thumbnail_url=thumbnail_url,
             retention_days=retention, identity=identity, require_signing=True,
             asset_version_id=stored.version_id,
         )

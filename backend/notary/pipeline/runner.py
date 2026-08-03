@@ -573,6 +573,19 @@ class ReviewRunner:
             except Exception as exc:  # noqa: BLE001
                 log.warning("could not promote thumbnail to the vault: %s", exc)
 
+        # Fallback: derive a poster from the sealed asset itself when there was
+        # no workbench thumbnail to promote. That is the case for any path that
+        # certifies media it did not generate -- scripts/seed_vault.py, for one
+        # -- which would otherwise produce a certificate the library renders by
+        # downloading the whole video just to show one frame.
+        if vault_thumbnail is None:
+            try:
+                vault_thumbnail = await asyncio.to_thread(
+                    self._seal_thumbnail, asset_key, thumb_key, retention
+                )
+            except Exception as exc:  # noqa: BLE001 - a missing poster is cosmetic
+                log.warning("could not seal a thumbnail for %s: %s", asset_id, exc)
+
         identity = self._signing_identity()
 
         await asyncio.to_thread(
@@ -703,6 +716,34 @@ class ReviewRunner:
             embedded_by=embedded_by,
             version_id=stored.version_id,
         )
+
+    def _seal_thumbnail(
+        self, asset_key: str, thumb_key: str, retention_days: int
+    ) -> str | None:
+        """Extract a poster frame from the sealed asset and seal it alongside.
+
+        Taken from the object already written to the vault rather than from the
+        workbench copy, so the poster is provably a frame of the media that was
+        actually certified.
+        """
+        import tempfile
+
+        body = self.storage.get_bytes(self.settings.b2_bucket_vault, asset_key)
+        with tempfile.TemporaryDirectory(prefix="notary-thumb-") as tmp:
+            source = Path(tmp) / "asset.mp4"
+            source.write_bytes(body)
+            poster = make_thumbnail(source, Path(tmp) / "thumb.jpg")
+            if poster is None:
+                return None
+            stored = self.storage.put(
+                self.settings.b2_bucket_vault,
+                thumb_key,
+                poster.read_bytes(),
+                content_type="image/jpeg",
+                retention_days=retention_days,
+                cache_control="public, max-age=31536000, immutable",
+            )
+        return stored.url
 
     def _signing_identity(self) -> SigningIdentity | None:
         try:
