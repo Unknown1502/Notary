@@ -85,8 +85,48 @@ def check(name: str, passed: bool, detail: str, indent: str = "  ") -> bool:
     return passed
 
 
-def verify_asset(cert: dict[str, Any]) -> bool:
-    url = cert.get("asset_url")
+def unreachable_hint(cert: dict[str, Any], override: str | None) -> str:
+    """Say what a failed fetch does and does not prove.
+
+    A dead URL is not a failed integrity check, and the difference matters: one
+    means the bytes were tampered with, the other means a link went stale. The
+    certificate stays valid either way, so point at the identifiers that
+    outlive the URL.
+    """
+    if override:
+        return "\nThe URL supplied on the command line could not be read."
+
+    lines = [
+        "",
+        "This does not mean the certificate is invalid. asset_url is fixed when",
+        "the certificate is sealed and Object Lock forbids amending it, so a URL",
+        "that has since gone stale stays in the record. The digest is what the",
+        "certificate attests to; the URL is only where a copy once lived.",
+    ]
+    if key := cert.get("asset_key"):
+        lines.append(f"object    {key}")
+    if version := cert.get("asset_version_id"):
+        lines.append(f"version   {version}")
+    lines.append("Re-run with --asset-url <reachable copy> to check the bytes,")
+    lines.append("or --skip-download to verify signature, verdict and retention alone.")
+    return "\n".join(lines)
+
+
+def verify_asset(cert: dict[str, Any], override: str | None = None) -> bool:
+    """Recompute SHA-256 over the bytes and compare against the certified digest.
+
+    `asset_url` is a convenience, not an identity. It is fixed when the
+    certificate is sealed and Object Lock makes the record immutable, so it can
+    never be corrected afterwards -- a certificate sealed against a host that
+    has since moved carries a dead link permanently while remaining perfectly
+    valid. What identifies the object is `sha256`, with `asset_key` and
+    `asset_version_id` to locate it.
+
+    `--asset-url` therefore names a reachable source for the same bytes. It
+    weakens nothing: the digest still has to match what was certified, and a
+    substituted file fails exactly as loudly.
+    """
+    url = override or cert.get("asset_url")
     expected = (cert.get("sha256") or "").lower()
 
     if not url or not expected:
@@ -95,13 +135,15 @@ def verify_asset(cert: dict[str, Any]) -> bool:
     try:
         observed, size = hash_remote(url)
     except Exception as exc:  # noqa: BLE001
-        return check("asset integrity", False, f"could not fetch the asset: {exc}")
+        return check("asset integrity", False,
+                     f"could not fetch the asset: {exc}" + unreachable_hint(cert, override))
 
     matched = observed == expected
     return check(
         "asset integrity",
         matched,
-        f"fetched   {size:,} bytes from {url}\n"
+        ("supplied via --asset-url\n" if override else "")
+        + f"fetched   {size:,} bytes from {url}\n"
         f"expected  {expected}\n"
         f"recomputed {observed}\n"
         + ("bytes are unchanged since certification"
@@ -225,6 +267,10 @@ def main() -> int:
     parser.add_argument("certificate", help="path or URL to certificate.json")
     parser.add_argument("--skip-download", action="store_true",
                         help="skip the asset fetch (offline signature check only)")
+    parser.add_argument("--asset-url", default=None, metavar="URL",
+                        help="read the bytes from here instead of the URL sealed "
+                             "into the certificate, which cannot be updated once "
+                             "the record is locked")
     args = parser.parse_args()
 
     try:
@@ -250,7 +296,7 @@ def main() -> int:
         report_retention(cert),
     ]
     if not args.skip_download:
-        results.append(verify_asset(cert))
+        results.append(verify_asset(cert, args.asset_url))
     else:
         print(paint("  [SKIP] asset integrity (--skip-download)", DIM))
 
