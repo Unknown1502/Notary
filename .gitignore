@@ -34,6 +34,14 @@ seed/scratch-*/
 # intended for a public repository.
 notary.md
 
+# Written by scripts/seed_vault.py for offline verification.
+/certificate.json
+
+# Agent tooling state, not project source. .claude/ contains embedded git
+# worktrees, which would otherwise be staged as a nested repository.
+.superpowers/
+.claude/
+
 # OS / editor
 .DS_Store
 Thumbs.db

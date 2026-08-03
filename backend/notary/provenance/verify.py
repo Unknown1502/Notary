@@ -85,16 +85,27 @@ async def verify_certificate(
     *,
     client: httpx.AsyncClient | None = None,
     recomputed_manifest_hash: str | None = None,
+    fetch_url: str | None = None,
 ) -> VerificationReport:
-    """Re-verify a certificate end to end against live storage."""
+    """Re-verify a certificate end to end against live storage.
+
+    `fetch_url` overrides where the bytes are read from. The certificate's own
+    `asset_url` is a convenience for an outside verifier and is fixed at sealing
+    time -- so a certificate sealed on localhost and later served from a
+    deployed host carries a dead link, permanently, because Object Lock means it
+    cannot be corrected.
+
+    The durable identifiers are `asset_key` and `asset_version_id`, which the
+    server can always resolve. Passing a freshly-resolved URL verifies the same
+    object the certificate names, independent of what host happened to mint it.
+    """
     checks: list[VerificationCheck] = []
     bytes_hashed = 0
 
     # ------------------------------------------------------ 1. asset integrity
+    source_url = fetch_url or certificate.asset_url
     try:
-        observed_sha, bytes_hashed = await hash_remote_asset(
-            certificate.asset_url, client=client
-        )
+        observed_sha, bytes_hashed = await hash_remote_asset(source_url, client=client)
         matched = observed_sha == certificate.sha256.lower()
         checks.append(
             VerificationCheck(
@@ -205,7 +216,7 @@ async def verify_certificate(
         certificate_id=certificate.certificate_id,
         checks=checks,
         bytes_hashed=bytes_hashed,
-        source=certificate.asset_url,
+        source=source_url,
     )
 
 

@@ -25,6 +25,12 @@ dependencies = [
 
     # --- Deterministic screening (the non-LLM half of the Board) ---
     "pillow>=10.4",
+    # Ships a static ffmpeg binary as a wheel, so frame extraction works
+    # on a fresh pip install with no system package manager and no admin
+    # rights. Without ffmpeg every visual criterion reports UNCERTAIN and
+    # the whole review escalates -- correct, but a product that never
+    # decides anything. The Docker image installs real ffmpeg regardless.
+    "imageio-ffmpeg>=0.5",
     "numpy>=1.26",
 ]
 

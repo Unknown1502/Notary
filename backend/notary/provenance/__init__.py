@@ -14,6 +14,7 @@ from .certificate import (
     build_verdict_document,
     canonical_json,
     certificate_document,
+    certificate_from_document,
     hash_payload,
 )
 from .embedding import (
@@ -67,6 +68,7 @@ __all__ = [
     "build_verdict_document",
     "canonical_json",
     "certificate_document",
+    "certificate_from_document",
     "generate_key",
     "hash_payload",
     "hash_remote_asset",

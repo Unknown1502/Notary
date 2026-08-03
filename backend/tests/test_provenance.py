@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from notary.provenance import signing
 from notary.storage import keys
@@ -114,3 +115,106 @@ def test_content_key_fans_out_two_levels():
     assert parts[0] == "cache"
     assert len(parts[1]) == 2 and len(parts[2]) == 2
     assert parts[3].startswith(parts[1] + parts[2])
+
+
+# --------------------------------------------------------------------------
+# Certificate document round trip
+#
+# This guards a bug that made the vault write-only: certificate_document() adds
+# derived keys (schema, trust_mode, trust_mode_label, verification_instructions)
+# so the sealed file is self-describing, but Certificate is extra="forbid", so
+# feeding the document back raised. Certificates were written to B2 and could
+# never be read out — the library rebuilt itself empty after every restart and
+# the "B2 is the system of record" claim was false.
+#
+# Only a real round trip through real storage surfaces that, which is why it is
+# pinned here.
+# --------------------------------------------------------------------------
+
+
+def _certificate(**overrides):
+    from datetime import UTC, datetime, timedelta
+
+    from notary.models import (
+        BoardDecision,
+        BoardVerdict,
+        Certificate,
+        CheckKind,
+        CriterionId,
+        CriterionOutcome,
+        CriterionVerdict,
+        Severity,
+    )
+
+    verdict = BoardVerdict(
+        run_id="run-1",
+        decision=BoardDecision.VERIFIED,
+        criteria=[
+            CriterionVerdict(
+                criterion=CriterionId.PALETTE_ADHERENCE,
+                outcome=CriterionOutcome.PASS,
+                kind=CheckKind.DETERMINISTIC,
+                severity=Severity.BLOCKING,
+                rationale="on palette",
+            )
+        ],
+        summary="cleared",
+    )
+    defaults = dict(
+        asset_id="asset-1", campaign_id="cmp-1", tenant="acme", run_id="run-1",
+        asset_key="vault/acme/cmp-1/asset-1/asset.mp4",
+        asset_url="https://example.test/asset.mp4",
+        manifest_key="m.json", verdict_key="v.json",
+        sha256="a" * 64, manifest_hash="b" * 64,
+        provider="supplied", model="none", prompt="a coastal path",
+        verdict=verdict,
+        retention_until=datetime.now(UTC) + timedelta(days=7),
+    )
+    defaults.update(overrides)
+    return Certificate(**defaults)
+
+
+def test_certificate_survives_a_document_round_trip():
+    from notary.provenance import certificate_document, certificate_from_document
+
+    original = _certificate(asset_version_id="v-abc")
+    recovered = certificate_from_document(certificate_document(original))
+
+    assert recovered.certificate_id == original.certificate_id
+    assert recovered.sha256 == original.sha256
+    assert recovered.manifest_hash == original.manifest_hash
+    assert recovered.asset_version_id == "v-abc"
+    assert recovered.verdict.decision is original.verdict.decision
+    assert len(recovered.verdict.criteria) == 1
+
+
+def test_document_carries_derived_keys_the_model_rejects():
+    """The asymmetry itself, pinned. If these ever become model fields the
+    stripping in certificate_from_document must be revisited."""
+    from notary.models import Certificate
+    from notary.provenance import certificate_document
+
+    doc = certificate_document(_certificate())
+    derived = set(doc) - set(Certificate.model_fields)
+
+    assert derived == {
+        "schema", "trust_mode", "trust_mode_label", "verification_instructions",
+    }
+    with pytest.raises(ValidationError):
+        Certificate.model_validate(doc)
+
+
+def test_signed_certificate_round_trips_with_its_signature(identity):
+    from notary.provenance import certificate_document, certificate_from_document
+    from notary.provenance.signing import sign_manifest_hash, verify_signature
+
+    digest = "c" * 64
+    original = _certificate(manifest_hash=digest,
+                            signature=sign_manifest_hash(digest, identity))
+    recovered = certificate_from_document(certificate_document(original))
+
+    assert recovered.signature is not None
+    assert recovered.trust_mode == 2
+    # The recovered signature must still verify — a round trip that silently
+    # corrupted it would produce a certificate that looks signed and is not.
+    assert verify_signature(recovered.signature, digest) is True

@@ -224,6 +224,27 @@ def build_certificate(
     )
 
 
+def certificate_from_document(payload: dict[str, Any]) -> Certificate:
+    """Parse a certificate.json back into a Certificate.
+
+    `certificate_document()` adds derived, presentation-only keys -- `schema`,
+    `trust_mode`, `trust_mode_label`, `verification_instructions` -- so that the
+    sealed file is self-describing to a reader who has never seen this codebase.
+    The model is `extra="forbid"`, so feeding the document straight back to
+    `Certificate.model_validate()` raises.
+
+    That asymmetry silently broke the round trip: certificates were written to
+    B2 and could never be read out, so the library rebuilt itself as empty after
+    every restart and the "B2 is the system of record" claim was false.
+
+    Derived keys are dropped rather than tolerated, because they are outputs of
+    the model and must never be able to contradict it -- a document claiming
+    `trust_mode: 2` with no signature should lose that argument.
+    """
+    known = set(Certificate.model_fields)
+    return Certificate.model_validate({k: v for k, v in payload.items() if k in known})
+
+
 def certificate_document(certificate: Certificate) -> dict[str, Any]:
     """The certificate.json written to the vault."""
     doc = certificate.model_dump(mode="json")

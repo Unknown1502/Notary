@@ -448,8 +448,28 @@ async def verify(certificate_id: str) -> dict[str, Any]:
     if cert is None:
         raise HTTPException(status_code=404, detail=f"no certificate {certificate_id}")
 
+    # Resolve the object the certificate *names*, not the URL it happens to
+    # carry: asset_url is fixed at sealing time and cannot be corrected
+    # afterwards, since Object Lock makes the certificate immutable.
+    fetch_url: str | None = None
+    storage = get_storage()
+    if storage.available and cert.asset_key:
+        settings = get_settings()
+        try:
+            if cert.asset_version_id:
+                fetch_url = await asyncio.to_thread(
+                    storage.presigned_version_url,
+                    settings.b2_bucket_vault, cert.asset_key, cert.asset_version_id,
+                )
+            else:
+                fetch_url = await asyncio.to_thread(
+                    storage.serve_url, settings.b2_bucket_vault, cert.asset_key
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not resolve a fetch URL for %s: %s", certificate_id, exc)
+
     async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
-        report = await verify_certificate(cert, client=client)
+        report = await verify_certificate(cert, client=client, fetch_url=fetch_url)
 
     return {
         "report": report.model_dump(mode="json"),

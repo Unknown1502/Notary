@@ -32,6 +32,7 @@ from .models import (
     ReviewSession,
     TakeStatus,
 )
+from .provenance import certificate_from_document
 from .storage import get_storage, tenant_prefix
 
 log = logging.getLogger(__name__)
@@ -182,7 +183,7 @@ class Store:
                     continue
                 payload = storage.get_json(settings.b2_bucket_vault, obj.key)
                 if payload.get("certificate_id") == certificate_id:
-                    cert = Certificate.model_validate(payload)
+                    cert = certificate_from_document(payload)
                     self.put_certificate(cert)
                     return cert
         except Exception as exc:  # noqa: BLE001
@@ -216,7 +217,7 @@ class Store:
                         continue
                     try:
                         payload = storage.get_json(settings.b2_bucket_vault, obj.key)
-                        cert = Certificate.model_validate(payload)
+                        cert = certificate_from_document(payload)
                     except Exception as exc:  # noqa: BLE001
                         log.warning("skipping unreadable certificate %s: %s", obj.key, exc)
                         continue
