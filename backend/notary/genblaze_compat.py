@@ -93,27 +93,41 @@ except Exception as exc:  # noqa: BLE001
     log.info("genblaze-s3 sink unavailable (%s); using Notary's own B2 client", exc)
 
 
-def resolve_chat() -> tuple[Any, str | None]:
-    """Locate the `chat()` callable.
+CHAT_CONNECTORS: dict[str, str] = {
+    "google": "genblaze_google",
+    "gmicloud": "genblaze_gmicloud",
+    "openai": "genblaze_openai",
+    "nvidia": "genblaze_nvidia",
+}
+"""Vision-capable connectors, in Notary's default preference order.
+
+Google leads because Google AI Studio's free tier covers Gemini vision, and the
+Board reviews *every* take including the rejected ones -- so per-call cost
+decides whether the perceptual half can run at all on a hobby budget.
+"""
+
+
+def resolve_chat(preferred: str | None = None) -> tuple[Any, str | None]:
+    """Locate a `chat()` callable, optionally from a named provider.
 
     It is **not** in genblaze_core -- that package exports only the chat
     *types* (ChatMessage, ImageURLContent, ...). The callable is defined once
-    per connector: `genblaze_gmicloud.chat`, `genblaze_openai.chat`,
-    `genblaze_google.chat`, `genblaze_nvidia.chat`.
+    per connector, and the signatures differ between them, which is why
+    `vision_chat` filters kwargs rather than assuming a shared surface.
 
-    Connectors are tried in the order Notary prefers for vision review. The
-    presence of `ImageURLContent` among the core chat types is what confirms
-    multimodal input is a first-class concept rather than something to be
-    smuggled through `client=`. Resolves docs/SPIKES.md #3.
+    The presence of `ImageURLContent` among the core chat types is what
+    confirms multimodal input is a first-class concept rather than something to
+    be smuggled through `client=`. Resolves docs/SPIKES.md #3.
     """
     import importlib
 
-    for module_name in (
-        "genblaze_gmicloud",
-        "genblaze_openai",
-        "genblaze_google",
-        "genblaze_nvidia",
-    ):
+    order = list(CHAT_CONNECTORS)
+    if preferred and preferred in CHAT_CONNECTORS:
+        order.remove(preferred)
+        order.insert(0, preferred)
+
+    for name in order:
+        module_name = CHAT_CONNECTORS[name]
         try:
             module = importlib.import_module(module_name)
         except ImportError:
@@ -125,12 +139,32 @@ def resolve_chat() -> tuple[Any, str | None]:
             except ImportError:
                 fn = None
         if callable(fn):
-            return fn, module_name
+            return fn, name
 
     return None, None
 
 
 chat, CHAT_PROVIDER = resolve_chat()
+
+
+def supported_kwargs(fn: Any, candidate: dict[str, Any]) -> dict[str, Any]:
+    """Drop arguments the target `chat()` does not declare.
+
+    Connector signatures genuinely differ -- GMI Cloud takes `response_format`
+    but not `retry_on_rate_limit`; Google is the reverse. Both accept
+    `**kwargs`, so passing an unknown one raises no TypeError: it is forwarded
+    to the provider's HTTP layer, where it either does nothing or fails
+    somewhere unhelpful. Filtering by the declared signature keeps a
+    provider-specific option from silently becoming a wire parameter.
+    """
+    import inspect
+
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins
+        return candidate
+
+    return {k: v for k, v in candidate.items() if k in params}
 
 
 # --------------------------------------------------------------------------
@@ -287,42 +321,59 @@ def vision_chat(
     image_data_urls: list[str],
     api_key: str | None = None,
     client: Any = None,
+    provider: str | None = None,
     max_tokens: int = 1600,
     temperature: float = 0.0,
     **kwargs: Any,
 ) -> Any:
-    """Single vision call through genblaze `chat()`.
+    """Single vision call through a genblaze connector's `chat()`.
+
+    `provider` selects the connector ("google", "gmicloud", "openai",
+    "nvidia"); omitted, the default preference order applies.
 
     temperature=0.0 is deliberate. A compliance verdict that varies run to run
     on identical input is not a compliance verdict.
     """
-    if not GENBLAZE_AVAILABLE or chat is None:
+    fn, resolved = (chat, CHAT_PROVIDER) if provider is None else resolve_chat(provider)
+
+    if not GENBLAZE_AVAILABLE or fn is None:
         raise RuntimeError(
-            "No genblaze chat connector is installed. Vision review requires "
-            "one of: genblaze-gmicloud, genblaze-openai, genblaze-google, "
+            "No genblaze chat connector is installed. Vision review needs one "
+            "of: genblaze-google, genblaze-gmicloud, genblaze-openai, "
             "genblaze-nvidia."
         )
+    if provider and resolved != provider:
+        log.warning(
+            "requested vision provider %r is not installed; using %r",
+            provider,
+            resolved,
+        )
 
-    # Verified signature (genblaze_gmicloud.chat):
-    #   chat(model, messages=None, *, prompt=None, system=None, tools=None,
-    #        temperature=None, max_tokens=None, response_format=None,
-    #        api_key=None, base_url=None, timeout=60.0, client=None, **kwargs)
-    #
-    # Note there is NO `retry_on_rate_limit` here despite the docs showing one
-    # -- that belongs to a different connector. Passing it would have been
-    # swallowed by **kwargs and forwarded to the HTTP layer.
-    return chat(
+    # Connector signatures differ, so options are offered and filtered rather
+    # than assumed. Verified:
+    #   gmicloud  has response_format, no retry_on_rate_limit
+    #   google    has retry_on_rate_limit, no response_format
+    # Both declare **kwargs, so an unsupported option would not raise -- it
+    # would be forwarded to the provider's HTTP layer and fail obscurely.
+    optional = supported_kwargs(
+        fn,
+        {
+            # Constrain output to JSON where the provider can guarantee it. An
+            # unparseable verdict already escalates safely, but escalating for
+            # a formatting slip wastes a reviewer's attention.
+            "response_format": {"type": "json_object"},
+            "retry_on_rate_limit": True,
+            "client": client,
+        },
+    )
+
+    return fn(
         model=model,
         messages=build_vision_messages(system_prompt, user_prompt, image_data_urls),
         temperature=temperature,
         max_tokens=max_tokens,
-        # Ask the provider to constrain output to JSON. The Board parses a
-        # structured verdict, and an unparseable response escalates to a human
-        # -- correct, but wasteful when the provider can simply guarantee the
-        # shape. Connectors that ignore this are unaffected.
-        response_format={"type": "json_object"},
         api_key=api_key,
-        client=client,
+        **optional,
         **kwargs,
     )
 

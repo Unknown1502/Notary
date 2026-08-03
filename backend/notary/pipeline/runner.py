@@ -443,12 +443,13 @@ class ReviewRunner:
                 review = run_vision_review(
                     session.brief, frames,
                     model=self.settings.board_vision_model,
-                    api_key=self.settings.gmicloud_api_key,
+                    api_key=self.settings.vision_api_key,
+                    provider=self.settings.board_vision_provider,
                 )
                 perceptual = review.criteria
                 vision_meta = {
                     "vision_model": review.model,
-                    "vision_provider": "gmicloud",
+                    "vision_provider": self.settings.board_vision_provider,
                     "tokens_in": review.tokens_in,
                     "tokens_out": review.tokens_out,
                     "estimated_cost_usd": review.cost_usd,

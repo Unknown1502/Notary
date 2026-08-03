@@ -90,6 +90,26 @@ def make_frame(path: Path, rgb: tuple[int, int, int], *, size=(1280, 720), label
     return path
 
 
+def publish_frame(seed_dir: Path, session: str, take: int, source: Path) -> str:
+    """Keep one reviewed frame beside the recording, and return its URL.
+
+    These are not illustrations. They are the exact images the deterministic
+    checks measured -- the frame whose pixels produced dE 95.65 is the frame a
+    reviewer sees. Discarding them (as this script previously did) left replay
+    with a permanently empty media panel and, worse, made the numbers
+    unaccountable: a measurement you cannot look at is one you have to take on
+    faith.
+    """
+    directory = seed_dir / session
+    directory.mkdir(parents=True, exist_ok=True)
+
+    target = directory / f"take-{take:02d}.jpg"
+    with Image.open(source) as im:
+        im.convert("RGB").save(target, format="JPEG", quality=86)
+
+    return f"/api/demo/media/{session}/{target.name}"
+
+
 def criterion_event(events, session, offset, verdict: CriterionVerdict):
     event(
         events,
@@ -180,6 +200,7 @@ def build_run_01(workdir: Path, seed_dir: Path) -> None:
         make_frame(workdir / "t1" / f"f{i}.jpg", (238, 140, 62), label="take 01")
         for i in range(4)
     ]
+    take1_url = publish_frame(seed_dir, session, 1, bad_frames[0])
 
     event(events, "board.convened", session, 41.6, stage="output",
           take_number=1, frames=len(bad_frames))
@@ -218,7 +239,7 @@ def build_run_01(workdir: Path, seed_dir: Path) -> None:
         take_number=1, decision="rejected", run_id="run-01-take-01",
         summary="2 measured compliance failures: palette_adherence, mandatory_disclosure.",
         blocking_failures=["palette_adherence", "mandatory_disclosure"],
-        iterations_remaining=2, elapsed_seconds=5.2,
+        iterations_remaining=2, elapsed_seconds=5.2, frame_url=take1_url,
     )
 
     guidance = (
@@ -242,6 +263,7 @@ def build_run_01(workdir: Path, seed_dir: Path) -> None:
         make_frame(workdir / "t2" / f"f{i}.jpg", (11, 95, 255), label="take 02")
         for i in range(4)
     ]
+    take2_url = publish_frame(seed_dir, session, 2, good_frames[0])
 
     corrected_copy = (
         brief.prompt
@@ -283,6 +305,7 @@ def build_run_01(workdir: Path, seed_dir: Path) -> None:
         take_number=2, decision="verified", run_id="run-01-take-02",
         summary="All 10 criteria cleared (5 measured, 5 reviewed).",
         blocking_failures=[], iterations_remaining=1, elapsed_seconds=4.9,
+        frame_url=take2_url,
     )
 
     event(events, "certification.started", session, 94.0,
@@ -341,6 +364,7 @@ def build_run_02(workdir: Path, seed_dir: Path) -> None:
         make_frame(workdir / "e1" / f"f{i}.jpg", (14, 88, 230), label="take 01")
         for i in range(4)
     ]
+    frame_url = publish_frame(seed_dir, session, 1, frames[0])
     event(events, "board.convened", session, 38.6, stage="output",
           take_number=1, frames=len(frames))
 
@@ -378,7 +402,7 @@ def build_run_02(workdir: Path, seed_dir: Path) -> None:
           run_id="run-02-take-01",
           summary="1 low-confidence finding: visual_artifacts.",
           blocking_failures=["visual_artifacts"], iterations_remaining=2,
-          elapsed_seconds=5.0)
+          elapsed_seconds=5.0, frame_url=frame_url)
     event(events, "escalated", session, 44.0,
           reason=("The Board flagged a possible artifact at confidence 0.38, below "
                   "the 0.55 floor. Spending a render on a revision driven by a guess "
@@ -439,6 +463,7 @@ def build_run_03(workdir: Path, seed_dir: Path) -> None:
         make_frame(workdir / "f1" / f"f{i}.jpg", (18, 63, 109), label="ray-2")
         for i in range(4)
     ]
+    frame_url = publish_frame(seed_dir, session, 1, frames[0])
     event(events, "board.convened", session, 104.6, stage="output",
           take_number=1, frames=len(frames))
 
@@ -472,7 +497,8 @@ def build_run_03(workdir: Path, seed_dir: Path) -> None:
     event(events, "board.verdict", session, 109.4, take_number=1, decision="verified",
           run_id="run-03-take-01",
           summary="All 10 criteria cleared (5 measured, 5 reviewed).",
-          blocking_failures=[], iterations_remaining=2, elapsed_seconds=4.8)
+          blocking_failures=[], iterations_remaining=2, elapsed_seconds=4.8,
+          frame_url=frame_url)
     event(events, "certification.started", session, 110.0,
           asset_id="take_demo03final", retention_days=7)
     event(events, "certification.sealed", session, 112.0,

@@ -40,6 +40,7 @@ function reduceStream(events: StreamEvent[]) {
   let detail = "";
   let takeNumber = 0;
   let assetUrl: string | null = null;
+  let frameUrl: string | null = null;
   let certificateId: string | null = null;
   let fallback: { from: string; to: string; code: string } | null = null;
   let replayed = false;
@@ -77,6 +78,11 @@ function reduceStream(events: StreamEvent[]) {
         decision = String(event.decision);
         detail = String(event.summary ?? "");
         if (event.asset_url) assetUrl = String(event.asset_url);
+        // Replayed runs ship the reviewed frame rather than a video: no
+        // provider was called, so there is no clip — but the frame the checks
+        // actually measured does exist, and showing it is what makes the
+        // numbers on screen accountable.
+        if (event.frame_url) frameUrl = String(event.frame_url);
         lineage.push({
           run_id: String(event.run_id ?? `take-${event.take_number}`),
           parent_run_id: null,
@@ -116,6 +122,7 @@ function reduceStream(events: StreamEvent[]) {
     detail,
     takeNumber,
     assetUrl,
+    frameUrl,
     certificateId,
     fallback,
     replayed,
@@ -294,10 +301,19 @@ function Console() {
                     <div className="media">
                       {state.assetUrl ? (
                         <video src={state.assetUrl} controls playsInline />
+                      ) : state.frameUrl ? (
+                        <img src={state.frameUrl} alt="Reviewed keyframe" />
                       ) : (
-                        <div className="media media--empty">awaiting render</div>
+                        <div className="media media--empty">awaiting first take</div>
                       )}
                     </div>
+                    {!state.assetUrl && state.frameUrl && (
+                      <p className="hint">
+                        Reviewed keyframe — the exact image the measured
+                        criteria were computed from. No clip exists for a
+                        replayed run because no provider was called.
+                      </p>
+                    )}
                     <Panel title="Lineage" flush>
                       <Lineage nodes={state.lineage} />
                     </Panel>

@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     gmicloud_api_key: str | None = None
     luma_api_key: str | None = None
     openai_api_key: str | None = None
+    google_api_key: str | None = None
+    """Google AI Studio key. Gemini's free tier covers vision, which matters
+    because the Board reviews every take -- including the ones it rejects."""
+
+    board_vision_provider: str = "google"
+    """Which connector runs the perceptual review: google | gmicloud |
+    openai | nvidia. Kept separate from the generation provider because the
+    two have different cost profiles and different credit pools."""
 
     # Model ids verified against a live GMI Cloud account (2026-07-31) by
     # listing /v1/models and the connector's own registries. The previous
@@ -108,7 +116,7 @@ class Settings(BaseSettings):
     """Used instead of `video_model` when `image_model` is set, so the
     storyboard frame is what gets animated."""
 
-    board_vision_model: str = "google/gemini-3-flash-preview"
+    board_vision_model: str = "gemini-2.0-flash"
     """Multimodal and cheap, which matters because the Board reviews every
     take including rejected ones. `openai/gpt-5.1` is the stronger fallback.
 
@@ -160,6 +168,20 @@ class Settings(BaseSettings):
                 "credential-free demo."
             )
         return self
+
+    @property
+    def vision_api_key(self) -> str | None:
+        """The credential for whichever connector runs the Board.
+
+        Vision and generation are deliberately decoupled: a deployment can
+        review with a free Gemini key while generation is unavailable, which
+        is the difference between the Board running and not running at all.
+        """
+        return {
+            "google": self.google_api_key,
+            "gmicloud": self.gmicloud_api_key,
+            "openai": self.openai_api_key,
+        }.get(self.board_vision_provider, self.gmicloud_api_key)
 
     @property
     def b2_configured(self) -> bool:

@@ -333,8 +333,15 @@ def run_vision_review(
     model: str,
     api_key: str | None = None,
     client: Any = None,
+    provider: str | None = None,
 ) -> VisionReviewOutput:
-    """One vision pass over sampled frames. The perceptual half of the Board."""
+    """One vision pass over sampled frames. The perceptual half of the Board.
+
+    `provider` names the connector, so the Board can run on a different vendor
+    (and a different credit pool) from generation. That separation is what lets
+    the perceptual review work on a free Gemini key while video generation is
+    unavailable -- the difference between the Board running and not at all.
+    """
     if not frame_paths:
         perceptual = {
             c.id.value: c
@@ -362,6 +369,7 @@ def run_vision_review(
         image_data_urls=images,
         api_key=api_key,
         client=client,
+        provider=provider,
     )
 
     text = extract_chat_text(response)

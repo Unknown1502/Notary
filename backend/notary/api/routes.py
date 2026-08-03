@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sse_starlette.sse import EventSourceResponse
 
 from ..board.rubric import describe_profiles
@@ -235,6 +235,31 @@ async def demo_recordings() -> dict[str, Any]:
             "code path as a live review; events are flagged replayed=true."
         ),
     }
+
+
+@router.get("/demo/media/{recording_id}/{filename}")
+async def demo_media(recording_id: str, filename: str) -> FileResponse:
+    """Serve a reviewed frame that ships alongside a recording.
+
+    These are the exact images the deterministic checks measured, kept so a
+    replayed review can show the frame whose pixels produced the numbers on
+    screen. A measurement you cannot look at is one the viewer has to take on
+    faith.
+
+    Both path segments are resolved and confined to the seed directory before
+    anything is opened — `recording_id` and `filename` arrive from the URL, and
+    a `..` in either would otherwise read arbitrary files off the host.
+    """
+    settings = get_settings()
+    root = settings.seed_dir.resolve()
+    target = (root / recording_id / filename).resolve()
+
+    if not target.is_relative_to(root) or not target.is_file():
+        raise HTTPException(status_code=404, detail="no such media")
+    if target.suffix.lower() not in {".jpg", ".jpeg", ".png", ".mp4", ".webm"}:
+        raise HTTPException(status_code=404, detail="unsupported media type")
+
+    return FileResponse(target, headers={"Cache-Control": "public, max-age=3600"})
 
 
 @router.post("/demo/replay/{recording_id}", response_model=ReplayResponse)
